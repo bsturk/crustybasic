@@ -1,0 +1,17 @@
+.codex/
+.agents/
+tools/
+
+# Release archives should be uploaded as GitHub Release assets, not committed.
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.tar.bz2
+*.tbz2
+*.tar.xz
+*.txz
+*.7z
+
+# common local release output directory.
+dist/
