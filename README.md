@@ -29,7 +29,7 @@ computers and consoles. It compiles BASIC source into native machine code.
 
 **Currently supported machines:** Apple II, Atari 8-bit, Atari 2600, Commodore 64, Plus/4, and VIC-20, TRS-80 Color Computer, and the NES.
 
-## 🚀 Downloading the Compiler
+## Downloading the Compiler
 
 To download the latest compiled binaries for Windows, macOS, or Linux, please visit the **[Releases Section](https://github.com/bsturk/crustybasic/releases)** on the right side of this page.
 
