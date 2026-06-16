@@ -40,8 +40,6 @@ computers and consoles. It compiles BASIC source into native machine code.
   - VIC-20
 - Tandy/RS
   - Color Computers 1/2/3
-  - 1000
-- IBM PCjr
 - MS-DOS 16-bit
 - NES
 
