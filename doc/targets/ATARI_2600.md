@@ -9,7 +9,8 @@ keyboard, no operating system, no `REAL`, and only 128 bytes of RAM.
 Programs should be small and should draw a frame every game tick.
 
 For portable calls that exist here, such as `JOY`, `JOY_BUTTON`,
-`PADDLE`, `RND`, `PEEK`, and `SOUND`, see [`../API.md`](../API.md).
+`PADDLE`, `RND`, `PEEK`, `SOUND`, and `IMAGE_DISPLAY`, see
+[`../API.md`](../API.md).
 
 ## Basics
 
@@ -95,18 +96,31 @@ text selects `KERNEL_PLAYFIELD_TILE`. An explicit option such as
 | Kernel | Purpose |
 | --- | --- |
 | `KERNEL_NONE` | No built in display kernel |
-| `KERNEL_STANDARD` | Static PF0/PF1/PF2 plus two players, with missiles, ball, score/status, per row colors, and analog paddle options (this is the default) |
-| `KERNEL_PLAYFIELD_TILE` | TILE and playfield text surface |
+| `KERNEL_STANDARD` | Static PF0/PF1/PF2 plus two players, with missiles, ball, score/status, per row color/background/height tables, and analog paddle options (this is the default) |
+| `KERNEL_PLAYFIELD_TILE` | TILE and playfield text surface (20 or 40 columns) |
 | `KERNEL_MULTISPRITE` | Player reuse profile for more visible sprite entries |
-| `KERNEL_PLAYFIELD_RICH` | Playfield first profile with per row color/background/height tables |
 
 Constants include `KERNEL_NONE`, `KERNEL_STANDARD`,
-`KERNEL_PLAYFIELD_TILE`, `KERNEL_MULTISPRITE`,
-`KERNEL_PLAYFIELD_RICH`, and `A2600_KERNEL_PROFILE`.
+`KERNEL_PLAYFIELD_TILE`, `KERNEL_MULTISPRITE`, and
+`A2600_KERNEL_PROFILE`.
 
 The `standard` kernel also provides `A2600_MISSILE0_X`,
 `A2600_MISSILE1_X`, and `A2600_BALL_X` for demos that need stable
 missile/ball positioning without inline timing code.
+
+When any per row option is selected the standard kernel switches to a
+row based visible loop that draws players, missiles, score and status
+bands, and the per row tables together. With per row heights (or an
+explicit `A2600_PLAYFIELD_ROW_SCANLINES`) the kernel clamps the row
+table to 192 visible scanlines and blank-pads any remainder, so height
+tables that do not sum exactly still produce a stable frame.
+
+`KERNEL_STANDARD` usage also has the 20-column TILE kernel so a
+program can switch into TILE mode at runtime (`TILE_BEGIN` sets a mode
+bit). Set `@OPTION A2600_TILE_RUNTIME OFF` to drop that kernel and
+reclaim the ROM when the program never uses TILE or playfield text; a
+`TILE_BEGIN` call in such a build silently keeps showing the static
+playfield.
 
 ## Playfield Layout
 
@@ -119,14 +133,48 @@ playfield bits:
 | `PLAYFIELD_REFLECT` | 20 cells mirrored on the right half |
 | `PLAYFIELD_ASYMMETRIC` | 40 unique cells across the full width |
 
-`A2600_PLAYFIELD_REFLECT ON` maps to layout `PLAYFIELD_REFLECT`.
-`A2600_PLAYFIELD_REFLECT OFF` maps to `PLAYFIELD_REPEAT`. Unique full
-width needs `A2600_PLAYFIELD_COLUMNS 40` or layout
-`PLAYFIELD_ASYMMETRIC`.
+The default layout is `PLAYFIELD_REFLECT`. Unique full width needs
+`A2600_PLAYFIELD_COLUMNS 40` or layout `PLAYFIELD_ASYMMETRIC` (either
+implies the other).
 
 The TILE path supports 20-column repeat/reflect rows and an 8-row
-40-column asymmetric RAM path. The 40-column TILE path has no sprite
-overlay.
+40-column asymmetric path. The 40-column TILE path has no sprite
+overlay but supports the ball, and `A2600_DRAWSCREEN` drives it
+directly.
+
+Player sprites on the 20-column TILE kernel are opt-in. Set
+`@OPTION A2600_PLAYFIELD_SPRITES ON` to enable the two-player overlay
+for `A2600_PLAYER0_X/Y/GRAPH`, `A2600_PLAYER1_*`, and the hide PROCs.
+The overlay costs 6 bytes of RAM plus kernel cycles every scanline, so
+it is off by default. Calling a player PROC on the TILE kernel without
+the option fails at assemble time with an undefined
+`__CB_ERROR_SET_OPTION_A2600_PLAYFIELD_SPRITES_ON` reference.
+
+## Images
+
+Atari 2600 images use `IMAGE_FMT_PF_ROWS`: one display-ready TIA
+register triplet (`PF0`, `PF1`, `PF2`) per row for images up to 20
+pixels wide, or two triplets per row (left half, right half) for wider
+images. The aux byte's bit 0 mirrors the left half onto the right.
+The converter builds descriptors from 8-bit indexed PNG files up to 40
+pixels wide (nonzero pixels become playfield bits):
+
+```sh
+tools/bin/cb-image --target atari2600 --name A2600 --mirror pf.png -o pf.cbi
+```
+
+Rows draw through `KERNEL_PLAYFIELD_TILE`, so select that kernel and
+matching playfield rows and columns before displaying the image:
+
+```basic
+@OPTION TARGET atari2600
+@OPTION A2600_KERNEL KERNEL_PLAYFIELD_TILE
+
+OK = IMAGE_DISPLAY(ADDR A2600_IMAGE)
+```
+
+Rows and columns beyond the configured kernel grid are clipped. See
+`image.cbs` in the examples directory.
 
 ## Kernel Options
 
@@ -137,7 +185,6 @@ Useful options:
 | `A2600_PLAYFIELD_COLUMNS` | `20`, `40` |
 | `A2600_PLAYFIELD_ROWS` | `8`, `12`, `16`, `24` |
 | `A2600_PLAYFIELD_ROW_SCANLINES` | Row height in scanlines |
-| `A2600_PLAYFIELD_STORAGE` | `PLAYFIELD_RAM`, `PLAYFIELD_ROM` |
 | `A2600_SCORE` | `ON`, `OFF` |
 | `A2600_STATUS_BAND` | `BAND_NONE`, `BAND_SCORE`, `BAND_TEXT` |
 | `A2600_MISSILES` | `ON`, `OFF` |
@@ -147,9 +194,10 @@ Useful options:
 | `A2600_PLAYFIELD_COLORS` | `PLAYFIELD_COLORS_SINGLE`, `PLAYFIELD_COLORS_PER_ROW` |
 | `A2600_BACKGROUND_COLORS` | `BACKGROUND_COLORS_SINGLE`, `BACKGROUND_COLORS_PER_ROW` |
 | `A2600_PLAYFIELD_HEIGHTS` | `PLAYFIELD_HEIGHTS_FIXED`, `PLAYFIELD_HEIGHTS_PER_ROW` |
-| `A2600_PLAYFIELD_GAPS` | `ON`, `OFF` |
 | `A2600_INPUT_MODE` | `INPUT_STANDARD`, `INPUT_TIMED_PADDLE` |
+| `A2600_TILE_RUNTIME` | `ON`, `OFF` (default `ON`) |
 | `A2600_MULTISPRITE_COUNT` | `4`, `6` |
+| `A2600_MULTISPRITE_COLORS` | `ON`, `OFF` (default `OFF`) |
 
 Standard game tradeoffs:
 
@@ -157,14 +205,14 @@ Standard game tradeoffs:
 | --- | --- |
 | `A2600_PLAYER_COLORS PLAYER_COLORS_PLAYER1_PER_ROW` | Missile 1 state is unavailable |
 | `A2600_PLAYER_COLORS PLAYER_COLORS_PER_ROW` | Missile 0 and missile 1 state are unavailable |
-| `A2600_INPUT_MODE INPUT_TIMED_PADDLE` | Requires gapless playfield timing and missile 0 state is unavailable |
+| `A2600_INPUT_MODE INPUT_TIMED_PADDLE` | Standard kernel only; missile 0 state is unavailable |
 | `A2600_BACKGROUND_COLORS BACKGROUND_COLORS_PER_ROW` | Requires per-row playfield colors or per-row playfield heights |
 | `A2600_PLAYFIELD_COLORS PLAYFIELD_COLORS_PER_ROW` | Adds a playfield color table |
 | `A2600_PLAYFIELD_HEIGHTS PLAYFIELD_HEIGHTS_PER_ROW` | Adds a playfield height table |
 
-`KERNEL_MULTISPRITE` only supports `A2600_MULTISPRITE_COUNT` from this
-option group. DPC+, PXE, CDF, SARA, and Superchip kernels are not part
-of this target pass.
+`KERNEL_MULTISPRITE` only supports `A2600_MULTISPRITE_COUNT` and
+`A2600_MULTISPRITE_COLORS` from this option group. DPC+, PXE, CDF,
+SARA, and Superchip kernels are not part of this target pass.
 
 Generated constants include `A2600_MISSILE0_AVAILABLE`,
 `A2600_MISSILE1_AVAILABLE`, `A2600_BALL_AVAILABLE`,
@@ -184,6 +232,7 @@ Small table APIs are available on kernels that use them:
 | `A2600_BACKGROUND_ROW_COLOR ROW, C` | Set background row color |
 | `A2600_PLAYFIELD_ROW_HEIGHT ROW, H` | Set playfield row height |
 | `A2600_MULTISPRITE_X/Y/GRAPH ID, VALUE` | Set multisprite table entries |
+| `A2600_MULTISPRITE_COLOR ID, C` | Set a per-sprite color (`A2600_MULTISPRITE_COLORS ON`) |
 
 ## Text
 
@@ -304,7 +353,7 @@ MAPPER`:
 | `f6` | 16K | 4 |
 | `f4` | 32K | 8 |
 
-Use `@BANK N` for code that belongs in a switched bank. See
+Use `@BANK PRG N` for code that belongs in a switched bank. See
 [`../USAGE.md#banked-builds`](../USAGE.md#banked-builds).
 
 ## Not Supported
@@ -327,6 +376,7 @@ See [`../../examples/atari2600/crustybasic/`](../../examples/atari2600/crustybas
 | Basics | `blank_color.cbs`, `beep.cbs`, `playfield.cbs`, `sprite.cbs` |
 | Input | `joystick.cbs`, `paddle_raw.cbs`, `hardware_status.cbs` |
 | TILE and text | `tile_border.cbs`, `text.cbs`, `playfield_text_20.cbs`, `playfield_text_40.cbs`, `sprite_text.cbs`, `text_modes.cbs`, `playfield_repeat_vs_reflect.cbs` |
+| Images | `image.cbs` |
 | Standard options | `standard_per_row_colors.cbs`, `standard_analog_paddle.cbs`, `standard_score_status.cbs` |
 | Low level TIA | `player_controls.cbs`, `missile_ball.cbs`, `collision_status.cbs` |
 | Banked carts | `f8_bank.cbs`, `f6_bank.cbs`, `f4_bank.cbs` |

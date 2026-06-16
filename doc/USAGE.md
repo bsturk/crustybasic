@@ -47,10 +47,10 @@ to build it anyway.
 ## Commands
 
 ```text
-crustybasic compile <input.cbs> [-o output.s] [--include path] [--emit-ir] [--crustybasic-toml path] [--set key=value]
-crustybasic <input.cbs> [-o output.s] [--include path] [--emit-ir] [--crustybasic-toml path] [--set key=value]
-crustybasic build <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler path] [--cart-size N] [--crustybasic-toml path] [--set key=value]
-crustybasic build-examples[:path-filter] [--examples-dir dir] [--output-dir dir] [--examples-asm-dir dir] [--assembler path] [--cart-size N] [--crustybasic-toml path] [--cart-include-variants] [--keep-going-requires] [--keep-going|-k] [--jobs N|-j N] [--set key=value]
+crustybasic compile <input.cbs> [-o output.s] [--include path] [--emit-ir] [--debug] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic <input.cbs> [-o output.s] [--include path] [--emit-ir] [--debug] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic build <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler path] [--cart-size N] [--debug] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic build-examples[:path-filter] [--examples-dir dir] [--output-dir dir] [--examples-asm-dir dir] [--assembler path] [--cart-size N] [--debug] [--crustybasic-toml path] [--cart-include-variants] [--keep-going-requires] [--keep-going|-k] [--jobs N|-j N] [--set key=value]
 crustybasic detokenize <input> [-o output] [--from-tokenized=NAME] [--from-hex] [--repair-vnt] [--set dialect=NAME]
 crustybasic test-regression [--corpus dir] [--out-dir dir] [--bless] [--no-assemble]
 crustybasic targets
@@ -74,6 +74,8 @@ With no command, `crustybasic <input.cbs>` is the same as
 | `--set key=value` | Override a compile option. |
 | `--emit-asm path` | Keep the assembly file alongside a `build`. |
 | `--emit-ir` | Print an internal debug listing to stderr. |
+| `--debug` | Set `DEBUG` to 1 and enable `@ASSERT`. Without this flag, `DEBUG` is 0 and `@ASSERT` is ignored. |
+| `--show-warnings` | Print compiler warnings to stderr. Warnings are suppressed by default. |
 | `--assembler path` | Use a specific assembler executable. |
 | `--include path` | Include a `.cbi` file before the source. Repeat for multiple files. They are included in the order specified from left to right. |
 | `--crustybasic-toml path` | Use this standalone config instead of the `crustybasic.toml`. |
@@ -104,12 +106,13 @@ These are the current command-line option keys:
 | `region` | `ntsc`, `pal` | Choose timing data for region-sensitive targets. |
 | `throttle` | `$XXXX`, `0xXXXX`, or decimal | Add delay to approximate interpreted BASIC timing. |
 | `ram-top` | `$XXXX`, `0xXXXX`, or decimal | Set the highest address available for program data. |
-| `program-start` | `$XXXX`, `0xXXXX`, or decimal | Set the outer loaded program wrapper start when the startup format has one. |
-| `code-start` | `$XXXX`, `0xXXXX`, or decimal | Set the generated machine code start address. |
+| `start-program` | `$XXXX`, `0xXXXX`, or decimal | Set the outer loaded program wrapper start when the startup format has one. |
+| `start-code` | `$XXXX`, `0xXXXX`, or decimal | Set the generated machine code start address. |
+| `start-data` | `$XXXX`, `0xXXXX`, or decimal | Set the mutable data start address for split code/data layouts. |
 | `math-real` | `auto`, `target`, `builtin` | Choose where `REAL` math comes from. |
 | `math-integer` | `auto`, `target`, `builtin` | Choose where integer math comes from. |
 | `numeric-mode` | `integer`, `real`, `real_narrow`, `integer_only_warn`, `integer_only_error` | Choose the default numeric policy. |
-| `disk-image` | `on`, `off`, `true`, `false`, `1`, `0` | Also create a bootable disk image when supported. |
+| `disk-image` | `on`, `off`, `true`, `false`, `1`, `0` | Create or skip a disk image when supported. |
 | `asm-verbose` | `0`, `1`, `2` | Control how much detail appears in generated assembly files. |
 | `array-base` | `0`, `1` | Choose the first array index. |
 
@@ -172,6 +175,9 @@ Current systems:
 | `coco.1.cart` | 6809 | `.ccc` | 32x16 | yes | `lwasm` | CoCo Color BASIC cartridge. |
 | `coco.3` | 6809 | `.bin` | 32x16 | yes | `lwasm` | CoCo 3 with `GIME` registers exposed. |
 | `coco.3.cart` | 6809 | `.ccc` | 32x16 | yes | `lwasm` | CoCo 3 cartridge. |
+| `dos16.exe` | 8086 | `.exe`, optional `.img` | 80x25 | yes | `nasm` | Generic 16 bit DOS executable. The `.img` is a mountable FAT12 data disk. |
+| `pcjr.exe` | 8086 | `.exe`, optional `.img` | 40x25 | yes | `nasm` | IBM PCjr executable. The `.img` is a mountable FAT12 data disk. |
+| `tandy1000.exe` | 8086 | `.exe`, optional `.img` | 40x25 | yes | `nasm` | Tandy 1000 executable. The `.img` is a mountable FAT12 data disk. |
 | `nes.orig` | 6502 | `.nes` | 32x30 | no | `vasm` | iNES cartridge. NROM by default. |
 | `vic20.orig` | 6502 | `.prg` | 22x23 | yes | `vasm` | Unexpanded VIC-20. |
 | `vic20.3k` | 6502 | `.prg` | 22x23 | yes | `vasm` | VIC-20 with 3K expansion. |
@@ -193,8 +199,8 @@ Use source options or CLI flags:
 ```
 
 ```bash
-crustybasic compile examples/multi/hello_there.cbs --set target=coco -o /tmp/hello.s
-crustybasic compile examples/multi/hello_there.cbs --set system=coco.ecb -o /tmp/hello.s
+crustybasic compile examples/multi/strings.cbs --set target=coco -o /tmp/strings.s
+crustybasic compile examples/multi/strings.cbs --set system=coco.ecb -o /tmp/strings.s
 crustybasic build-examples --set target=c64
 ```
 
@@ -205,7 +211,7 @@ target or system.
 
 ## Cartridge Mappers
 
-NES defaults to NROM. UxROM enables banked PRG ROM:
+NES defaults to NROM. UxROM, MMC1, and MMC3 enable banked PRG ROM:
 
 ```basic
 @OPTION TARGET nes
@@ -218,6 +224,22 @@ Equivalent on the CLI:
 crustybasic build program.cbs --set target=nes --set mapper=uxrom -o /tmp/program.nes
 ```
 
+NES builds can package external CHR ROM bytes:
+
+```bash
+crustybasic build program.cbs --set target=nes --set chr-rom=tiles.chr -o /tmp/program.nes
+```
+
+When `chr-rom` is set, runtime CHR RAM upload helpers are no-ops; put
+the font and tile data the program uses in the supplied CHR file.
+For MMC3, source can place 8K CHR ROM banks directly:
+
+```basic
+@OPTION TARGET nes
+@OPTION MAPPER mmc3
+@BANK CHR 0 "tiles.chr"
+```
+
 Other banked options:
 
 | System | Standard | Banked alternative |
@@ -225,11 +247,12 @@ Other banked options:
 | `atari800.xl.cart`, `atari800.orig.cart` | 8K/16K cart | `xegs32` (XEGS 32K) |
 | `c64.orig.cart`, `c64.c64c.cart` | 8K/16K cart | `supergames` (Super Games 64K) |
 | `coco.ecb.cart`, `coco.1.cart`, `coco.3.cart` | Program Pak | `banked_16k` (128K banked Pak) |
-| `nes.orig` | `nrom` | `uxrom` |
+| `nes.orig` | `nrom` | `uxrom`, `mmc1`, `mmc3` |
 
 ## Banked Builds
 
-@BANK syntax: see [`@BANK` / `@ENDBANK`](LANGUAGE.md#bank--endbank).
+Use `@BANK PRG N ... @ENDBANK` for code and DATA banks. See
+[`@BANK` / `@ENDBANK`](LANGUAGE.md#bank--endbank).
 
 Pass `--emit-asm` to keep the assembly. Switched banks get sibling
 files with a `.bankN.s` suffix:
@@ -248,6 +271,11 @@ fixed bank: 1804 / 16384 bytes estimated
 switched bank 0: 0 / 16384 bytes estimated
 switched bank 1: 1697 / 16384 bytes estimated
 ```
+
+Current banked mappers reject calls from one switched bank directly to
+another switched bank. This applies to `uxrom`, `mmc1`, `mmc3`,
+`xegs32`, `supergames`, and `banked_16k`. Put shared helper PROCs in
+the main fixed area so switched-bank code can call them.
 
 ## Dialects
 
@@ -275,11 +303,14 @@ BASIC SAVE files with damaged variable names.
 The nearest `crustybasic.config.toml` applies to sources in that folder
 and its children. A per-file `<name>.config.toml` beside the source is
 layered on top of the folder file for that source, overriding only the
-values it sets.
+values it sets. Config discovery starts from the entry source file.
+Sibling config files beside `@INCLUDE`d files are ignored.
 
 Config files use the same names and values as the public `--set`
 options, except that `asm-verbose` is not a config key. They also accept
-`build-examples = false` to skip a source during `build-examples`.
+`build-examples = false` to skip a source during `build-examples`, and
+`startup` to select a named startup template from the target manifests
+(also available in source as `@OPTION STARTUP`).
 
 Config values use TOML syntax, so string choices are quoted and booleans
 are `true` or `false`. Config files also accept `include`,
@@ -298,7 +329,8 @@ array-base = 1
 include = "my_style.cbi"
 
 [target.vic20]
-program-start = "$2001"
+start-program = "$2001"
+start-data = "$6000"
 ram-top = "$1C00"
 optimize = "size"
 
@@ -329,26 +361,55 @@ source and can hold folder-wide spelling preferences:
 
 `build` needs the assembler expected by the selected system: `vasm`
 for Apple II, Commodore 64/Plus/4/VIC-20, and NES; `mads` for Atari;
-`lwasm` for CoCo.
+`lwasm` for CoCo; `nasm` for DOS 16/PCjr/Tandy 1000. The
+[systems table](#targets-and-systems) lists the assembler per system.
 
-You can pass one directly:
+By default no configuration is needed: the bundled assembler is
+located automatically next to the `crustybasic` executable. For each
+build the compiler probes these locations in order and uses the first
+one that exists:
+
+```text
+tools/assemblers/<assembler>/<platform>/<executable>
+tools/assemblers/<assembler>/<platform>/bin/<executable>
+```
+
+`<platform>` matches the machine running the compiler:
+`macos-aarch64` (Apple Silicon), `macos-x86_64` (Intel Mac),
+`linux-x86_64`, or `windows-x86_64`. `<executable>` is the assembler
+binary (`vasm6502_oldstyle`, `mads`, `lwasm`, `nasm`), with `.exe`
+appended on Windows.
+
+So a Linux bundle finds the C64 assembler at
+`tools/assemblers/vasm/linux-x86_64/vasm6502_oldstyle`. Release
+bundles create these platform directories for you - drop an assembler
+binary in and it's picked up with no configuration. The bundled
+helper tools (`cb-cart-wrap` and friends) are found the same
+way, under `tools/bin/` next to the compiler.
+
+To use a different executable, pass one directly:
 
 ```bash
 crustybasic build hello.cbs --assembler /path/to/vasm6502_oldstyle -o hello.prg
 ```
 
-Or configure it in `Cargo.toml`:
+Or create a `crustybasic.toml` next to the compiler and pin it per
+target:
 
 ```toml
-[package.metadata.crustybasic.targets.c64]
-assembler = "tools/assemblers/vasm/linux-x86_64/bin/vasm6502_oldstyle"
+[targets.c64]
+assembler = "/path/to/vasm6502_oldstyle"
 ```
 
-The project `Cargo.toml` already contains local Linux paths for the
-vendored assemblers. Release bundles use their own `crustybasic.toml`
-with the same kind of target-specific assembler paths.
-Use `--crustybasic-toml path` to test another standalone config without
-moving it beside the compiler.
+(When building from the source tree, the same override goes in
+`Cargo.toml` as `[package.metadata.crustybasic.targets.c64]`.)
+
+An explicit `--assembler` flag beats the config entry, which beats the
+automatic bundled lookup. Relative override paths resolve against the
+directory you run `crustybasic` from, so prefer absolute paths there;
+the automatic lookup always resolves against the install directory and
+works from anywhere. Use `--crustybasic-toml path` to test a config
+without moving it beside the compiler.
 
 ## Extra Output Files
 
@@ -359,11 +420,15 @@ Some builds run helper tools after the assembler:
   Set `APPLECOMMANDER_JAR` to point at AppleCommander if needed.
 - Atari 800 `.xex` builds can also produce a bootable `.atr` when
   `--set disk-image=true` and the vendored `mkatr` tools are built.
-- Cartridge systems use the bundled `crustybasic-cart-wrap` helper to
+- DOS 16, PCjr, and Tandy 1000 `.exe` builds try to produce a
+  mountable 360K FAT12 `.img` by default. Use
+  `--set disk-image=false` to skip it. The `.img` is not bootable;
+  boot DOS separately and mount it as a data floppy in the emulator.
+- Cartridge systems use the bundled `cb-cart-wrap` helper to
   write `.crt`, `.car`, `.a52`, `.ccc`, or `.nes` images.
 
 Optional disk-image steps warn and continue if their external tool is
-missing. The main `.bin` or `.xex` still gets built.
+missing. The main `.bin`, `.xex`, or `.exe` still gets built.
 
 ## Compile Options In Source
 

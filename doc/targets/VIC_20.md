@@ -31,10 +31,16 @@ available through the BASIC ROM.
 | Color RAM | `$9600` | `$9400` |
 | Text | 22x23 | 22x23 |
 
-Use `@OPTION PROGRAM_START <addr>` to move the BASIC loader stub.
-If `CODE_START` is not set, the machine code starts 15 bytes after
-`PROGRAM_START`, matching the target default. Use `@OPTION CODE_START
+Use `@OPTION START_PROGRAM <addr>` to move the BASIC loader stub.
+If `START_CODE` is not set, the machine code starts 15 bytes after
+`START_PROGRAM`, matching the target default. Use `@OPTION START_CODE
 <addr>` when a custom layout needs a different machine code entry.
+
+`@OPTION STARTUP <name>` selects one of the BASIC loader stubs
+directly - `vic20_basic` ($1001), `vic20_basic_3k` ($0401), or
+`vic20_basic_8k` ($1201) - and moves the program/code start to match,
+without switching systems. For a fully custom loader, write a
+`@STARTUP` block (see LANGUAGE.md).
 
 `VIC20_SCREEN_BASE` and `VIC20_COLOR_BASE` follow the active system, so
 programs can use them instead of hard-coded screen addresses.
@@ -60,6 +66,71 @@ pen registers at `$9000-$900F`.
 VIC.COLOR = $1B
 VIC.VOLUME = 15
 VIC.SOUND3 = $E0
+```
+
+## Colors
+
+The VIC-I palette has 16 colors, but normal text cell foreground color
+only has eight choices. `CELL_COLOR`, `TILE_COLOR`, `SPRITE_COLOR`, and
+other portable cell drawing calls use normal foreground color, so they
+mask through `CELL_FOREGROUND_COLOR_MASK` and keep values in `0..7`.
+
+Some portable color names have no normal VIC-20 foreground equivalent.
+The target manifest maps those names to visible VIC-20 foreground
+fallbacks. For example, `LIGHT_GRAY` maps to `CYAN`, while `YELLOW`
+stays yellow. This keeps portable programs readable without adding
+target branches.
+
+The VIC-20 target also exposes the VIC-I palette names:
+
+| Value | Constant |
+| --- | --- |
+| `0` | `BLACK` |
+| `1` | `WHITE` |
+| `2` | `RED` |
+| `3` | `CYAN` |
+| `4` | `PURPLE` |
+| `5` | `GREEN` |
+| `6` | `BLUE` |
+| `7` | `YELLOW` |
+| `8` | `ORANGE` |
+| `9` | `LIGHT_ORANGE` |
+| `10` | `LIGHT_RED` |
+| `11` | `LIGHT_CYAN` |
+| `12` | `LIGHT_PURPLE` |
+| `13` | `LIGHT_GREEN` |
+| `14` | `LIGHT_BLUE` |
+| `15` | `LIGHT_YELLOW` |
+
+A VIC-20 specific program can still use the full 16 color palette where
+the hardware allows it:
+
+| Use | Range | How |
+| --- | --- | --- |
+| Cell foreground | `0..7` | `CELL_COLOR X, Y, C` or `POKEB VIC20_COLOR_BASE + Y * TEXT_WIDTH + X, C` |
+| Cell multicolor flag | bit 3 | Write `8..15` to color RAM for that cell |
+| Background | `0..15` | High nibble of `VIC.COLOR` |
+| Border | `0..7` | Low bits of `VIC.COLOR` |
+| Auxiliary multicolor | `0..15` | High nibble of `VIC.VOLUME` |
+
+In multicolor cells, the character glyph is read as two bit pixels. The
+four pixel values select the global background color, global border
+color, global auxiliary color, or that cell's `0..7` foreground color.
+This is why the upper eight colors are useful for backgrounds and the
+auxiliary multicolor, but not as per cell foreground colors.
+
+```basic
+@OPTION TARGET vic20
+
+BG     = LIGHT_BLUE
+BORDER = BLUE
+AUX    = LIGHT_RED
+
+VIC.COLOR  = (BG * 16) + BORDER
+VIC.VOLUME = (AUX * 16) + (VIC.VOLUME & 15)
+
+' set one cell to multicolor mode with red as its per cell foreground
+POKEB VIC20_COLOR_BASE + 5 * TEXT_WIDTH + 10, 8 + RED
 ```
 
 ## Text And Cells

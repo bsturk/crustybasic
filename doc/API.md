@@ -10,6 +10,23 @@ command-line use is documented in [USAGE.md](USAGE.md).
 Core calls work on all targets unless noted. Optional helper libraries
 list their own limits.
 
+### Fixed Point
+
+Unsigned fixed-point helpers use Q8.8 values stored in `U16`: the high
+byte is the integer part and the low byte is the fractional part.
+
+| Name | What it does |
+| ---- | ------------ |
+| `FX_ONE` | The value `1.0` (`256`). |
+| `FX_HALF` | The value `0.5` (`128`). |
+| `FX_MAX` | Largest Q8.8 value (`65535`). |
+| `FX_FROM_INT(n)` | Convert a `U8` integer to Q8.8. |
+| `FX_FROM_PARTS(i, f)` | Build Q8.8 from integer and fractional bytes. |
+| `FX_INT(x)` | Return the integer byte. |
+| `FX_FRAC(x)` | Return the fractional byte. |
+| `FXMUL(a, b)` | Multiply two Q8.8 values, clamped to `FX_MAX`. |
+| `FXDIV(a, b)` | Divide two Q8.8 values, clamped to `FX_MAX`; divide by zero returns `FX_MAX`. |
+
 ### Text
 
 | Call                               | What it does                                                     |
@@ -21,6 +38,15 @@ list their own limits.
 | `POSITION(col, row)`               | Move text cursor to zero-based col/row.                          |
 | `CURSORCOL()`                      | Current text cursor column (returns `U8`).                       |
 | `CURSORROW()`                      | Current text cursor row (returns `U8`).                          |
+| `TEXT_COLOR(color)`                | Set the current `PRINT`/`INPUT` text color when supported.       |
+
+`TEXT_COLOR` is always callable. It does nothing on targets without a
+current text color, and `TEXT_COLOR_AVAILABLE` is `1` when the active
+target implements it. Direct text cell color is separate: use
+`CELL_HAS_COLOR` before calling `CELL_COLOR(col, row, color)`.
+`CELL_COLOR_W` and `CELL_COLOR_H` report the color granularity when
+a program needs an exact size. Cell attributes use `CELL_HAS_ATTRIB`;
+`CELL_ATTRIB_W` and `CELL_ATTRIB_H` report their granularity.
 
 ### Sound
 
@@ -43,6 +69,50 @@ list their own limits.
 Raw tick units are target specific. Compare `TIMER_HI` first, then
 `TIMER_LO`; lower elapsed ticks means faster. Use
 `@IF TIMER_AVAILABLE THEN` when a program needs a timer fallback.
+
+### Frames
+
+Frame pacing is a runtime API: each target provides its vsync wait,
+and `FRAME_AVAILABLE` / `ON_FRAME_AVAILABLE` gate support.
+
+| Name                     | What it does                                                  |
+| ------------------------ | ------------------------------------------------------------- |
+| `WAIT_FRAME()`           | Block until the next frame and advance `FRAME_COUNTER`.       |
+| `FRAME_COUNTER`          | `U16` frame count advanced by `WAIT_FRAME` (or the VBI on Atari targets once installed). |
+| `ON_FRAME_INSTALL(addr)` | Install a PROC address to run once per frame.                 |
+| `ON_FRAME_OFF()`         | Remove the installed per-frame hook.                          |
+
+Targets without a frame provider get defaults: `WAIT_FRAME` just
+increments `FRAME_COUNTER` without waiting, and the hook calls are
+inert. Guard frame-paced code with `@IF FRAME_AVAILABLE THEN` (or
+`@REQUIRES FRAME_AVAILABLE`).
+
+### Ticks
+
+A free-running elapsed-tick counter, available on every target.
+`TICKS_RESET` latches the system counter into a hidden base;
+`TICKS` returns the ticks elapsed since the last reset. The system
+clock itself is never written, so `TI$` on CBM targets and the DOS
+time of day are unaffected.
+
+| Name                 | What it does                                                    |
+| -------------------- | --------------------------------------------------------------- |
+| `TICKS`              | `U32` ticks elapsed since the last `TICKS_RESET`.               |
+| `TICKS_RESET()`      | Restart the elapsed count from zero.                            |
+| `TICKS_HZ`           | Nominal ticks per second for the target (`60`, `50`, or `18`).  |
+| `TICKS_FREE_RUNNING` | `1` when an interrupt or OS clock drives the count, `0` when it only advances during `WAIT_FRAME` (or `A2600_DRAWSCREEN`). |
+
+Tick sources and caveats by target:
+
+| Target                  | Source                       | Notes                                                       |
+| ----------------------- | ---------------------------- | ----------------------------------------------------------- |
+| c64, vic20, plus4       | KERNAL jiffy clock (RDTIM)   | ~60 Hz on PAL and NTSC; 24 h wrap compensated for one crossing. |
+| atari800                | OS `RTCLOK`                  | True rate 59.92 Hz NTSC / 49.86 Hz PAL; 24-bit counter.     |
+| dos16, pcjr, tandy1000  | BIOS tick count `0040:006C`  | True rate 18.2065 Hz; midnight reset compensated for one crossing. PCjr loses ticks during diskette I/O. |
+| coco                    | Color BASIC `TIMER` ($0112)  | 16-bit, wraps ~18 min; pauses during cassette/`SOUND`; cart builds may not tick. |
+| nes                     | Runtime NMI frame counter    | 32-bit; one tick per frame.                                 |
+| apple2, atari5200       | Runtime `FRAME_COUNTER`      | Advances only during `WAIT_FRAME`; 16-bit.                  |
+| atari2600               | Kernel frame counter         | 8-bit, wraps every 256 drawn frames (~4.3 s).               |
 
 ### Files
 
@@ -183,8 +253,103 @@ Portable color constants:
 `LIGHT_RED` `DARK_GRAY` `GRAY`
 `LIGHT_GREEN` `LIGHT_BLUE` `LIGHT_GRAY`
 
+`GFX_STD_COLORS` is the same 16 colors as a `U8` const array. Use
+`LEN(GFX_STD_COLORS)` for its element count.
+
 `GFX_NATIVE_COLOR(idx)` returns the target specific byte for an index
 in the active mode.
+
+### Image
+
+The portable image API displays each platform's native image formats at
+native resolution: the build tool wraps a native screen dump in a small
+descriptor, and `IMAGE_DISPLAY` sets the video mode and copies the
+payload straight into video memory. It is intended for splash/loading
+screens, game backgrounds, and static art; hardware sprite state is left
+untouched so sprites can move over a displayed background.
+
+Generated includes define one label per image:
+
+```basic
+CONST TITLE_IMAGE(...) AS U8 = ...
+
+OK = IMAGE_DISPLAY(ADDR TITLE_IMAGE)
+```
+
+Native formats and the files the converter accepts:
+
+| Format id | Targets | Accepted files |
+| --- | --- | --- |
+| `IMAGE_FMT_C64_MULTI` | c64 | Koala Painter (`.koa`, 10003 bytes, load addr `$6000`; `$FE` RLE variants) |
+| `IMAGE_FMT_C64_HIRES` | c64 | Art Studio (`.art`, 9002-9009 bytes, load addr `$2000`) |
+| `IMAGE_FMT_TED_HIRES` / `IMAGE_FMT_TED_MULTI` | plus4 | Botticelli / Multi Botticelli (10050 bytes, load addr `$7800`) |
+| `IMAGE_FMT_A2_HGR` | apple2 | HGR screen dumps (8184/8188/8192 bytes, native row interleave) |
+| `IMAGE_FMT_A2_LGR` | apple2 | Lo-res screen dumps (1024 bytes) |
+| `IMAGE_FMT_ATARI_MIC` | atari800, atari5200 | Micro Painter / raw Graphics 15 (`.mic`, 7680/7684/7685 bytes) |
+| `IMAGE_FMT_ATARI_GR8` | atari800, atari5200 | Raw Graphics 8 (`.gr8`, 7680/7682 bytes) |
+| `IMAGE_FMT_CGA4` | dos16, pcjr, tandy1000 | CGA mode 4 BSAVE (`0xFD` header) or raw 16384-byte dumps |
+| `IMAGE_FMT_TANDY16` | pcjr, tandy1000 | Mode 9 (320x200x16) BSAVE or raw 32768-byte dumps |
+| `IMAGE_FMT_NES_SCREEN` | nes | `--chr` + `--nam` + `--pal` file triplet |
+| `IMAGE_FMT_PF_ROWS` | atari2600 | 8-bit indexed PNG up to 40 pixels wide (playfield rows) |
+| `IMAGE_FMT_COCO_PM4` | coco | Raw 6144-byte PMODE 4 screens or DECB `.BIN`/`.MAX` |
+| `IMAGE_FMT_VIC20_CELLS` | vic20 | PNG/PCX only (custom charset + matrix; no period format exists) |
+
+The converter strips file containers (PRG load addresses, BSAVE/DECB
+headers), expands compression, and stores payloads in exact
+video-memory dump order, so every runtime blit is a straight copy.
+Identical payloads are shared across targets where the hardware
+matches: `.mic`/`.gr8` between atari800 and atari5200, CGA BSAVEs
+between all three DOS targets, mode 9 between pcjr and tandy1000.
+
+Calls:
+
+| Call | What it does |
+| --- | --- |
+| `IMAGE_DISPLAY(src_addr)` | Set the format's video mode and blit the payload. Returns `1` if accepted. |
+| `IMAGE_CLEAR` | Clear available graphics, tile, and cell surfaces. |
+| `IMAGE_WIDTH(src_addr)` / `IMAGE_HEIGHT(src_addr)` | Native pixel size. |
+| `IMAGE_FORMAT(src_addr)` | The `IMAGE_FMT_*` id. |
+| `IMAGE_AUX(src_addr)` | Format-specific extra byte (CGA palette select, CoCo colorset, 2600 mirror flag). |
+| `IMAGE_LOAD_DISPLAY(path$)` | Open an `.img` descriptor file and stream it straight into video memory (targets with `IMAGE_FILE_AVAILABLE`: c64, plus4, vic20, apple2, atari800, coco). Returns `1` on success. |
+
+Capability names:
+
+| Name | What it means |
+| --- | --- |
+| `IMAGE_AVAILABLE` | Native image display is supported on this target. |
+| `IMAGE_FILE_AVAILABLE` | `IMAGE_LOAD_DISPLAY` can stream `.img` files from disk. |
+
+Converter usage:
+
+```sh
+tools/bin/cb-image --target c64 --name TITLE input.koa -o title.cbi
+tools/bin/cb-image --target nes --name TITLE --chr t.chr --nam t.nam --pal t.pal -o title.cbi
+tools/bin/cb-image --target atari2600 --name TITLE --mirror pf.png -o title.cbi
+tools/bin/cb-image --target c64 input.koa --img -o title.img
+```
+
+Every target also accepts indexed PNG and PCX sources up to the
+native resolution (smaller images are centered): source colors map to
+the nearest native palette entry and per-cell hardware constraints are
+satisfied by majority reduction (no dithering). Sources larger than the
+native mode are an error - scale them down first.
+
+`--as` forces a format when the input is ambiguous (for example a bare
+7680-byte Atari dump: `--as atari-mic` or `--as atari-gr8`; the `.mic`
+and `.gr8` extensions also decide). `--aux` overrides the descriptor
+aux byte. `--img` writes the raw descriptor bytes as a binary instead
+of a `.cbi` include (the format runtime file loading will consume).
+
+The descriptor layout (version 2) is a 12-byte header — magic `73`,
+version, format id, aux, width/height as `u16le`, reserved, payload
+length as `u16le` — followed by the payload.
+
+All image-capable targets set `IMAGE_AVAILABLE` (vic20 images are
+tool-generated `IMAGE_FMT_VIC20_CELLS` charset images). On the
+atari2600 the playfield decode runs through `KERNEL_PLAYFIELD_TILE`;
+see the target doc. On the c64 a full Koala plus program code can
+exceed the default bitmap bank's code ceiling; the assembler reports
+this — select `@OPTION BITMAP_BANK 3` for large programs.
 
 ### Cell
 
@@ -194,18 +359,30 @@ games and custom character sets.
 | Call                                           | What it does                                  |
 | ---------------------------------------------- | --------------------------------------------- |
 | `CELL_DRAW(x, y, w, h, addr)`                  | Copy a packed block of cells to the screen.   |
+| `CELL_MEMMOVE(src_x, src_y, dst_x, dst_y, count)` | Move a contiguous raw cell range within the screen. |
+| `CELL_SCROLL_ROW(row, x, w, count, fill, direction)` | Scroll one row segment left or right. |
+| `CELL_SCROLL(x, y, w, h, count, fill, direction)` | Scroll a rectangle left, right, up, or down. |
 | `CELL_GETC(x, y)`                              | Read one cell when the target can.            |
-| `CELL_PUTC(x, y, c)`                           | Write one cell.                               |
-| `CELL_CODE(c)`                                 | Convert a printable byte to a raw cell code.  |
+| `CELL_PUTC(x, y, c)` / `CELL_PUTC(x, y, s$)`   | Write one cell.                               |
+| `CELL_PUTC(x, y, c, color, attr)` / `CELL_PUTC(x, y, s$, color, attr)` | Write one cell, color, and attributes. |
+| `CELL_CODE(c)` / `CELL_CODE(s$)`               | Convert a printable byte or string to a raw cell code. |
 | `CELL_COLOR(x, y, color)`                      | Set cell color where the target supports it.  |
 | `CELL_ATTRIB(x, y, attr)`                      | Set cell attributes where supported.          |
 | `CELL_FLUSH()`                                 | Push staged writes; no-op on direct targets.  |
 
-Cell values are target specific screen codes. Color granularity is also target specific.
-Use `CELL_CODE(ASC("O"))` when a program wants the target's raw cell
-code for a printable character, such as for `CELL_PUTC` or a native
-`TILE_ALIAS`.
+Cell values are target specific screen codes. Color and attribute
+granularity are also target specific.
+Use `CELL_PUTC x, y, "O"` for a printable character, or
+`CELL_CODE("O")` when a program needs the target's raw cell code.
+String forms use the first character. The five argument `CELL_PUTC`
+overloads set color, write the cell, then apply attributes, which is
+the portable order when attributes share storage with the cell code.
 Current attributes are `NORMAL`, `INVERSE`, `ITALIC`, and `BLINKING`.
+Scroll directions are `CELL_SCROLL_LEFT`, `CELL_SCROLL_RIGHT`,
+`CELL_SCROLL_UP`, and `CELL_SCROLL_DOWN`. `CELL_MEMMOVE` works on a
+physically contiguous range from the source cell, so use it for a
+single row or for target specific layouts where the range is known to
+be contiguous.
 
 ### Tile
 
@@ -216,35 +393,34 @@ tile display. Coordinates are tile positions, not pixels.
 ```basic
 @INCLUDE "tile.cbi"
 
-TILE_BEGIN TILE_AUTO, 2, 2
-TILE_ALIAS 0, 32
-TILE_ALIAS 1, 35
+TILE_BEGIN 2, 2
+TILE_ALIAS 0, " "
+TILE_ALIAS 1, "#"
 TILE_CLEAR_TILE 0
 TILE_BOX 0, 0, TILE_COLUMNS - 1, TILE_ROWS - 1, 1
 ```
 
-Most programs should start with `TILE_BEGIN TILE_AUTO, cell_w, cell_h`.
+Most programs should start with `TILE_BEGIN cell_w, cell_h`.
 `cell_w` and `cell_h` are the size of one tile in normal text cells.
 Use `1, 1` for single-character tiles, or larger values for block tiles.
 
-`TILE_BEGIN(mode, cell_w, cell_h, base)` is for targets that need a
+`TILE_BEGIN(cell_w, cell_h, base)` is for targets that need a
 character or tile memory address. Omit `base` unless the target docs ask
-for it. `TILE_MODE(mode)` changes the drawing method later when the
-target supports it.
+for it.
 
-Tile modes:
+The drawing method (the backend) is fixed when the program compiles:
 
 | Name          | Meaning                                      |
 | ------------- | -------------------------------------------- |
-| `TILE_AUTO`   | Target chooses the drawing method. Start here. |
 | `TILE_NATIVE` | Draw on the target text/tile screen.         |
 | `TILE_BITMAP` | Draw tiles on a graphics bitmap.             |
 | `TILE_KERNEL` | Use a target-specific tile display.          |
 
-`@OPTION TILE_BACKEND native` sets what `TILE_AUTO` means for this
-build. Values are `auto`, `native`, `bitmap`, and `kernel`. The
-command-line form is `--set tile-backend=...`. Use these only to force
-or compare drawing methods; unsupported choices are compile errors.
+`@OPTION TILE_BACKEND TILE_BITMAP` (or `--set tile-backend=...` on the
+command line) picks the backend for the build. If it is not set, the
+target's preferred backend is used. Only the selected backend's
+drawing code links into the program, and the read-only `TILE_BACKEND`
+constant reports the choice. Unsupported choices are compile errors.
 
 Tile drawing:
 
@@ -271,7 +447,7 @@ Tile assets:
 
 | Call                                  | What it does                                |
 | ------------------------------------- | ------------------------------------------- |
-| `TILE_ALIAS(id, native)`              | Map an abstract ID to a native cell code.   |
+| `TILE_ALIAS(id, native)` / `TILE_ALIAS(id, s$)` | Map an abstract ID to a native cell code or character. |
 | `TILE_DEFINE(id, addr)`               | Define tile glyph data for capable targets. |
 | `TILE_BLOCK_DEFINE(id, w, h, addr)`   | Name a row-major native-cell block.         |
 | `TILE_BLIT(x, y, block)`              | Draw a named block.                         |
@@ -290,10 +466,10 @@ Capability and geometry names:
 | `TILE_DEFINE_AVAILABLE`        | `TILE_DEFINE` can install tile data.            |
 | `TILE_BLOCK_AVAILABLE`         | `TILE_BLOCK_DEFINE` and `TILE_BLIT` are useful. |
 | `TILE_COLOR_AVAILABLE`         | `TILE_COLOR` is available.                      |
-| `TILE_BACKEND()`               | Active drawing mode.                            |
-| `TILE_CELL_W()` / `TILE_CELL_H()` | Tile size in screen cells.                   |
-| `TILE_PIXEL_W()` / `TILE_PIXEL_H()` | Tile size in pixels.                       |
-| `TILE_COLUMNS()` / `TILE_ROWS()` | Logical TILE surface size.                    |
+| `TILE_BACKEND`                 | Active drawing mode.                            |
+| `TILE_CELL_W` / `TILE_CELL_H`  | Tile size in screen cells.                      |
+| `TILE_PIXEL_W` / `TILE_PIXEL_H` | Tile size in pixels.                           |
+| `TILE_COLUMNS` / `TILE_ROWS`   | Logical TILE surface size.                      |
 
 Bitmap TILE uses `DISPLAY` and the portable graphics API internally and can draw glyphs supplied by
 `TILE_DEFINE`; bitmap `TILE_BLIT` treats block bytes as tile IDs, so
@@ -312,6 +488,7 @@ empty/non-empty tile IDs onto a 20-column TIA playfield row kernel and reports
 | `RAWKEY()`               | Non-blocking raw key as a string, or `""`.          |
 | `RAWKEY_CODE()`          | Non-blocking raw key code, or `0`.                  |
 | `HAS_KEYBOARD()`         | `1` when keyboard input is available.               |
+| `HAS_KEYPAD()`           | `1` when keypad input is available.                 |
 | `HAS_JOYSTICK()`         | `1` when joystick input is available.               |
 | `HAS_JOYSTICK_BUTTONS()` | `1` when joystick buttons are available.            |
 | `HAS_ANALOG_JOYSTICK()`  | `1` for analog joysticks.                           |
@@ -324,17 +501,27 @@ empty/non-empty tile IDs onto a 20-column TIA playfield row kernel and reports
 | `JOY_BUTTON(port, button)`   | `1` if pressed, `0` otherwise.                      |
 | `JOY_SET_DEADZONE(value)` | set analog joystick dead zone                     |
 | `PADDLE(axis)`           | Raw analog axis value.                              |
+| `KEYPAD_CODE(port)`      | Raw keypad code, or `KEY_NONE`.                     |
 
 Input constants:
 
 | Name                    | What it means                                       |
 | ----------------------- | --------------------------------------------------- |
 | `JOY_PORTS`             | Number of joystick ports for `JOY(port)`.           |
+| `JOY_DEFAULT_PORT`      | Default joystick port for gameplay input.           |
 | `JOY_BUTTONS`           | Buttons per joystick port for `JOY_BUTTON(port, button)`. |
 | `JOY_DEADZONE_DEFAULT`  | initial analog joystick dead zone                   |
 | `PADDLE_AXES`           | Number of analog axes for `PADDLE(axis)`.           |
 | `ANALOG_AXIS_PAIR_NAME` | Name for an X/Y analog axis pair.                   |
 | `MOUSE_BUTTONS`         | Number of mouse buttons; `0` when none.             |
+| `KEYPAD_PORTS`          | Number of keypad ports for `KEYPAD_CODE(port)`.     |
+| `KEYPAD_KEYS`           | Number of keypad key codes, excluding `KEY_NONE`.   |
+| `KEYPAD_FUNCTION_KEYS`  | Number of nonnumeric keypad key codes.              |
+| `KEYPAD_TEXT_INPUT_AVAILABLE` | `true` when keypad numeric `INPUT` is available. |
+
+`KEYPAD_CODE(port)` returns `KEY_NONE`, `KEY_0` through `KEY_9`,
+`KEY_ASTERISK`, `KEY_POUND`, `KEY_START`, `KEY_PAUSE`, or `KEY_RESET`.
+Missing keypad ports return `KEY_NONE`.
 
 Test joysticks against `JOY_UP`, `JOY_DOWN`, `JOY_LEFT`, `JOY_RIGHT` with bitwise `&`:
 
@@ -353,14 +540,24 @@ make the stick more sensitive, and digital targets accept the call as a no op
 Mouse position and mouse-button state are target-specific until a
 portable mouse input surface exists.
 
-`RAWKEY()` and `RAWKEY_CODE()` are for games and control polling. They
-bypass text editor input when a target has a separate editor or console
-input path. Use `INKEY()` and `INKEY_CODE()` for normal text keyboard
+`INKEY()` and `INKEY_CODE()` are cooked keyboard input. They read the
+target's normal key queue or equivalent translated key path, so a press
+is reported as a character event. Use them for prompts, menus, and text
 input.
+
+`RAWKEY()` and `RAWKEY_CODE()` are for games and control polling. They
+use a direct key state path when a target has one, bypassing the text
+editor or key queue. A held key may be reported on every poll. On
+targets without a separate direct key path, raw key input may match
+`INKEY()` and `INKEY_CODE()`.
 
 `ANY_INPUT()` is for "press anything" prompts. On keyboard targets it
 may consume the pending key - call `RAWKEY_CODE()` or `RAWKEY()` if you
-need the raw key.
+need the raw key. On keypad targets it also reports active keypad keys.
+
+Keypad backed `INPUT` is limited to unsigned integer variables. Press
+the target's keypad commit key to finish entry; for Atari 5200 this is
+`#`. `*` remains available through `KEYPAD_CODE`.
 
 [Per-target capabilities](#input-capabilities) has the per target inputs chart.
 
@@ -516,14 +713,15 @@ Declaring `REAL` on a target without FP is a compile error.
 ### ADDR
 
 `ADDR(name)`, `ADDR name`, and `&name` evaluate to a `U16` address.
-They accept addressable storage, numeric array elements, string
-literals, and no-argument `PROC`s in fixed memory. Use them to pass an
+They accept addressable storage, array elements, string literals, and
+no-argument `PROC`s in fixed memory. Use them to pass an
 address to `MEMMOVE`, `MEMFILL`, `DPOKE`, callback installers such as
 `ON_FRAME_INSTALL`, or inline `ASM`.
 
 ```basic
 BUF(255) AS U8
 WORDS(15) AS U16
+NAMES$(3) AS STRING * 16
 
 PTR## = ADDR BUF
 PTR## = ADDR(BUF)
@@ -532,6 +730,7 @@ PTR## = ADDR BUF[10]
 PTR## = &BUF[10]
 PTR## = ADDR WORDS[3]
 PTR## = ADDR(WORDS(3))
+PTR## = ADDR(NAMES$(2))
 PTR## = ADDR "LITERAL"
 
 PROC FOO
@@ -542,7 +741,10 @@ PROC_PTR## = ADDR FOO
 ```
 
 `ADDR(ARR(I))` returns the address of the indexed element, not the start of
-the array. String array elements are not supported.
+the array. For a string array element, the address points at that element's
+string descriptor. Characters begin after the descriptor: +1 for narrow
+strings and +2 for strings with capacity over 255. The element offset uses
+the same target and capacity stride as string array loads and stores.
 
 For a string variable, `ADDR(S$)` points at the length byte (or two
 bytes if the string was declared with capacity over 255); the
@@ -661,10 +863,12 @@ those details.
 
 `TEXT_OUTPUT_AVAILABLE` is the check for character/text output.
 `TEXT_CHARMAP_AVAILABLE` is the check for direct text-screen charmap
-support. `GRAPHICS_AVAILABLE`, `FRAME_AVAILABLE`, and `SPRITE_AVAILABLE` are
-the coarse checks for those portable surfaces. `POSITION`, `CURSORCOL`,
-and `CURSORROW` use the text screen dimensions; portable code can read
-`TEXT_WIDTH` and `TEXT_HEIGHT`.
+support. `TEXT_COLOR_AVAILABLE` means `TEXT_COLOR` changes the current
+`PRINT`/`INPUT` text color; otherwise it does nothing.
+`GRAPHICS_AVAILABLE`, `IMAGE_AVAILABLE`, `FRAME_AVAILABLE`, and
+`SPRITE_AVAILABLE` are the coarse checks for those portable surfaces.
+`POSITION`, `CURSORCOL`, and `CURSORROW` use the text screen
+dimensions; portable code can read `TEXT_WIDTH` and `TEXT_HEIGHT`.
 
 Declaring `REAL` on a target without FP is a compile error. Target
 docs list system-specific limits and notes.
@@ -674,17 +878,17 @@ docs list system-specific limits and notes.
 Use `HAS_KEYBOARD()`, `HAS_JOYSTICK()`, and the related `HAS_*` calls
 when a program needs to adjust prompts or controls.
 
-| Target      | Keyboard | Joysticks | Buttons | Stick type | Paddle axes | Mouse buttons |
-| ----------- | -------- | --------: | ------: | ---------- | ----------: | ------------: |
-| `apple2`    | yes      | 2         | 2       | analog     | 4           | 0, `apple2.c`: 1 |
-| `atari800`  | yes      | 4         | 1       | digital    | 8           | 0             |
-| `atari5200` | no       | 2         | 1       | analog     | 4           | 0             |
-| `atari2600` | no       | 2         | 1       | digital    | 4           | 0             |
-| `c64`       | yes      | 2         | 1       | digital    | 4           | 0             |
-| `plus4`     | yes      | 2         | 1       | digital    | 0           | 0             |
-| `coco`      | yes      | 2         | 1       | analog     | 4           | 0             |
-| `nes`       | no       | 2         | 4       | digital    | 0           | 0             |
-| `vic20`     | yes      | 2         | 1       | digital    | 2           | 0             |
+| Target      | Keyboard | Keypad ports | Keypad `INPUT` | Joysticks | Buttons | Stick type | Paddle axes | Mouse buttons |
+| ----------- | -------- | ------------: | -------------- | --------: | ------: | ---------- | ----------: | ------------: |
+| `apple2`    | yes      | 0             | no             | 2         | 2       | analog     | 4           | 0, `apple2.c`: 1 |
+| `atari800`  | yes      | 0             | no             | 4         | 1       | digital    | 8           | 0             |
+| `atari5200` | no       | 1             | unsigned int   | 2         | 1       | analog     | 4           | 0             |
+| `atari2600` | no       | 0             | no             | 2         | 1       | digital    | 4           | 0             |
+| `c64`       | yes      | 0             | no             | 2         | 1       | digital    | 4           | 0             |
+| `plus4`     | yes      | 0             | no             | 2         | 1       | digital    | 0           | 0             |
+| `coco`      | yes      | 0             | no             | 2         | 1       | analog     | 4           | 0             |
+| `nes`       | no       | 0             | no             | 2         | 4       | digital    | 0           | 0             |
+| `vic20`     | yes      | 0             | no             | 2         | 1       | digital    | 2           | 0             |
 
 For simple "press anything to continue" prompts, `ANY_INPUT()` is
 usually enough. Paddle axes are the numbered axes accepted by

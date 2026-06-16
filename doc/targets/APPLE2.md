@@ -43,7 +43,14 @@ screen memory yourself, use the usual Apple II row addressing rules.
 
 The portable graphics API supports text/cell mode, lo-res graphics,
 and hi-res graphics. Apple II has no hardware sprites; `SPRITE_*` is a
-one-sprite 7x8 hi-res blitter.
+software 7x8 hi-res blitter with `SPRITE_MAX_COUNT` slots. By default
+`SPRITES_FLUSH` page flips between the two hi-res pages, so sprites
+update without tearing; draw the bitmap background after
+`SPRITES_BEGIN` or `SPRITES_RESET` so it lands on both pages.
+
+Page-flip programs must fit below hi-res page 1 at $2000. Larger
+programs can load above both pages instead with `@OPTION START_CODE
+$6000`, trading the low-memory region for ~13.5 KB above $6000.
 
 Useful portable entry points:
 

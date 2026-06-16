@@ -190,6 +190,34 @@ values.
   `REAL` does not convert directly to `U32` or `I32`.
 - Strings do not convert to numbers.
 
+### Typed casts
+
+`U8(expr)`, `U16(expr)`, `U32(expr)`, `I8(expr)`, `I16(expr)`, and
+`I32(expr)` convert a numeric expression to exactly that type. A cast
+never warns: it is the explicit "I know this fits" (or "I want the
+wrap") form of the conversions above.
+
+- The value is truncated to the target width. Out-of-range values wrap
+  modulo that width instead of being a literal-range error:
+  `U8(300)` is `44`, `U8(-1)` is `255`, `I8(255)` is `-1`.
+- Constant operands fold at compile time, and casts are valid in
+  `CONST` initializers: `CONST LOW = U8($1234)` is `$34`.
+- Casting a `STRING` is an error. `REAL` operands follow the same
+  reach as implicit conversion (`REAL` does not cast to `U32` or
+  `I32`), just without the warning.
+
+```basic
+HI#1 = U8(PTR#2 >> 8)        ' high byte of an address
+LO#1 = U8(PTR#2)             ' low byte, wraps modulo 256
+IDX  = U8(IDX + 1)           ' deliberate mod-256 counter
+PLOT U8(BASE_X + DX + 1), U8(BASE_Y + DY + 1)
+```
+
+Use a cast where the in-range guarantee is yours rather than the
+compiler's - it documents the claim at the exact spot the narrowing
+happens and silences the "possible integer overflow" warning for that
+expression only.
+
 Signed integers are two's complement; division truncates toward zero,
 `MOD` keeps the sign of the left operand.
 
@@ -211,7 +239,9 @@ DIM FIRST_NAME, LAST_NAME AS STRING
 DIM SCORES(10) AS U16        ' 11 elements with base 0, 0...10
 DIM GRID[7, 7] AS U8
 DIM MAP(15, 11), SHADOW(15, 11) AS U8
+DIM VALUE AS U8 = 0
 DIM NUMS(4) AS U8 = 1, 2, 3, 4, 5
+PRINT LEN(NUMS)              ' element count
 
 SCORE#2 AS U16               ' DIM-less scalar declaration
 TITLE$ AS STRING * 80
@@ -224,6 +254,8 @@ NAMES[3] AS STRING
 
 Array bounds are inclusive. `A(10)` has indexes `0..10` (or `1..10`
 with `ARRAY_BASE 1`). Either `()` or `[]` works for references.
+`LEN(A)` returns the element count. `ADDR(A(I))` returns the address of
+one element; for string arrays this is the element's string descriptor.
 
 If every array bound is a compile time constant, the array uses static
 storage. If an executable declaration uses a runtime expression for the
@@ -349,6 +381,8 @@ A few things:
 - Value parameters accept numeric boundary conversions. Lossless
   widening is silent; narrowing or signedness-changing conversions that
   can lose information compile with a warning.
+- Use `AS ADDR OF U8` for a byte storage address. Pass `ADDR BYTE_ARRAY`
+  or a raw numeric address. Passing `ADDR` of a non-byte array is an error.
 - Assigning to a normal parameter does not affect the caller.
 - `OUT` parameters require an assignable variable argument with the
   exact same type. The value is copied out when the PROC returns.
@@ -470,6 +504,18 @@ R! = RAND()
 
 Legacy dialects may also provide their original `RND(x)` behavior. Use
 `RAND(max)` when you want the portable bounded form.
+
+### Numeric helpers
+
+`INC(x)` returns `x + 1`; `DEC(x)` returns `x - 1`. The return type
+matches the argument type. They accept `U8`, `U16`, `U32`, `I8`, `I16`,
+and `I32`, including suffix-selected variables such as `COUNT#1` or
+`OFFSET%2`.
+
+```basic
+COUNT#1 = INC(COUNT#1)
+OFFSET%2 = DEC(OFFSET%2)
+```
 
 ### Operators
 
@@ -806,9 +852,74 @@ compiled.
 
 See [Compiler options](#compiler-options).
 
+### @STARTUP
+
+Replace the target's startup template with a user-authored one. The
+annotation marks a top-level `ASM` block as the program's startup:
+the loader stub bytes, hardware init, the call into the program, and
+the exit path all become yours.
+
+```basic
+@OPTION TARGET vic20
+@OPTION START_PROGRAM $2001
+@OPTION START_CODE $2010
+
+@STARTUP
+ASM
+        ORIGIN ${start_program}
+        WORD __bas_eop
+        WORD 10
+        BYTE $9e
+        BYTE {start_code_decimal_bytes}
+        BYTE 0
+__bas_eop:
+        WORD 0
+
+        ORIGIN ${start_code}
+__start:
+        sei
+        jsr __cb_target_init
+        jsr {entry_label}
+__halt:
+        jmp ($C002)
+ENDASM
+```
+
+Inside a `@STARTUP` block, `{...}` interpolation first matches the
+startup placeholders below, and otherwise falls back to `DIM` global
+names like a regular `ASM` block. The block must reference
+`{entry_label}` (the compiled program's entry point) or the compile
+fails.
+
+| Placeholder | Expands to |
+| --- | --- |
+| `{start_code}` | Machine code start as 4-digit hex (`START_CODE` or the target default). |
+| `{start_code_decimal}` | The same address in decimal, e.g. for a `SYS` operand. |
+| `{start_code_decimal_bytes}` | The decimal digits as comma-separated PETSCII byte values, for hand-assembled `SYS` operands. |
+| `{start_program}` | Loaded program wrapper start as 4-digit hex (`START_PROGRAM`). |
+| `{start_data}` | Mutable data start as 4-digit hex (`START_DATA`). |
+| `{ram_top}` | Mutable-data ceiling as 4-digit hex. |
+| `{ram_top_high}` | High byte of `{ram_top}` as 2-digit hex. |
+| `{ram_size}` | RAM size as 4-digit hex. |
+| `{ram_size_high}` | High byte of `{ram_size}` as 2-digit hex. |
+| `{entry_label}` | Assembler symbol of the compiled program's entry point. |
+
+Addresses expand without a `$` prefix, so templates write
+`ORIGIN ${start_code}` to produce `ORIGIN $1010`.
+
+Rules:
+
+- At most one `@STARTUP` block applies per program; `ASM CPU`
+  filtering works, so a listing can carry one block per CPU.
+- A `@STARTUP` block conflicts with `@OPTION STARTUP`; pick one.
+- A user startup carries no layout metadata, so `START_PROGRAM`
+  requires an explicit `START_CODE`.
+- Banked cartridge mappers build separate fixed/switched images with
+  their own startups and do not support `@STARTUP`.
+
 ### @BANK / @ENDBANK
 
-`@BANK N` starts a switched-bank block; `@ENDBANK` closes it. Every
+`@BANK PRG N` starts a switched-bank block; `@ENDBANK` closes it. Every
 `PROC` and top-level `DATA` statement inside the block is placed in
 switched bank `N`. Blank lines, comments, and `DATA` labels (`FOO:`)
 are allowed inside the block.
@@ -817,7 +928,7 @@ are allowed inside the block.
 @OPTION TARGET nes
 @OPTION MAPPER uxrom
 
-@BANK 1
+@BANK PRG 1
 DATA 10, 20, 30
 PROC BANK_ONE_READ
     X AS U8
@@ -830,14 +941,14 @@ PROC MAIN
 ENDPROC
 ```
 
-- Use `@BANK` only with a banked mapper: e.g. `uxrom`, `xegs32`,
-  `supergames`, `banked_16k`.
+- Use `@BANK` only with a banked mapper: e.g. `uxrom`, `mmc1`,
+  `mmc3`, `xegs32`, `supergames`, `banked_16k`.
 - Bank numbers start at `0`. The always-available main area is not
   counted as a bank.
 - `PROC MAIN` stays in the main area. Put shared helper PROCs there too.
 - Code in the main area can call any bank. Code inside a bank can call
   the main area, but not another bank.
-- Inside `@BANK N ... @ENDBANK`, the top level can contain only
+- Inside `@BANK PRG N ... @ENDBANK`, the top level can contain only
   `PROC`, `DATA`, and `DATA` labels. Put `DIM`, `CONST`, inline `ASM`,
   and ordinary statements outside the bank block.
 - Do not put `@BANK` blocks inside other `@BANK` blocks. Every
@@ -850,6 +961,9 @@ ENDPROC
 - Each call to a banked PROC starts `READ` at that bank's first `DATA`
   item. Use `RESTORE LABEL` when you need a specific item.
 - String and `REAL` literals live with the bank that uses them.
+
+Some mappers expose source-level asset banks too. On NES MMC3,
+`@BANK CHR N "path"` places one file into an 8K CHR ROM bank.
 
 ### @DEFINE and @UNDEF
 
@@ -969,8 +1083,9 @@ Set with `@OPTION` or the CLI.
 @OPTION ARRAY_BASE 0
 @OPTION NUMERIC_MODE INTEGER
 @OPTION MATH_REAL AUTO
-@OPTION PROGRAM_START $2001
-@OPTION CODE_START $2100
+@OPTION START_PROGRAM $2001
+@OPTION START_CODE $2100
+@OPTION START_DATA $6000
 @OPTION REGION_NTSC
 @OPTION THROTTLE 10
 ```
@@ -986,8 +1101,10 @@ Set with `@OPTION` or the CLI.
 | `NUMERIC_MODE`                   | see below                               | Default numeric policy.                                                       |
 | `MATH_REAL`                      | `AUTO`, `TARGET`, `BUILTIN`             | Select the REAL math implementation.                                          |
 | `MATH_INTEGER`                   | `AUTO`, `TARGET`, `BUILTIN`             | Select the integer math implementation.                                       |
-| `PROGRAM_START`                  | address                                 | Set the outer loaded program wrapper start when the startup format has one.   |
-| `CODE_START`                     | address                                 | Set the generated machine code start address.                                 |
+| `START_PROGRAM`                  | address                                 | Set the outer loaded program wrapper start when the startup format has one.   |
+| `START_CODE`                     | address                                 | Set the generated machine code start address.                                 |
+| `START_DATA`                     | address                                 | Set the mutable data start address for split code/data layouts.               |
+| `STARTUP`                        | startup name                            | Select a named startup template from the target manifests (e.g. `vic20_basic_8k`). A startup with program-wrapper metadata also moves `START_PROGRAM`/`START_CODE` to match. |
 | `REGION_NTSC`, `REGION_PAL`      | flag                                    | Pick timing/frequency tables. Default is NTSC.                                |
 | `INLINE_ASM`                     | `ON`, `OFF`                             | Allow `ASM ... ENDASM`.                                                       |
 | `ARRAY_BASE`                     | `0`, `1`                                | First array index.                                                            |
@@ -1086,13 +1203,19 @@ Add your own preferred syntax by putting `@REWRITE OLD = NEW`
 lines in a `.cbi` file and listing that file in `crustybasic.config.toml`
 with `include` to pick it up automatically.
 
+Targets may also publish source rewrite files through their manifest.
+These target vocabulary aliases are available in native CrustyBASIC
+source for that target only. They keep the target-prefixed runtime API
+as the internal form while accepting familiar platform spellings in
+source.
+
 ## Mappers
 
 Default mappers:
 
 | Target          | Default        | Banked option      |
 | --------------- | ----------     | -------------      |
-| `nes`           | `nrom`         | `uxrom`            |
+| `nes`           | `nrom`         | `uxrom` / `mmc1` / `mmc3` |
 | `atari800` cart | `standard`     | `xegs32`           |
 | `atari2600`     | (default 4 KB) | `f8` / `f6` / `f4` |
 | `c64` cart      | `standard`     | `supergames`       |
