@@ -1,0 +1,61 @@
+name: Update Subfolder Screenshots README
+
+on:
+  push:
+    paths:
+      - 'screenshots/**' # Triggers only when files inside screenshots/ change
+
+permissions:
+  contents: write # Allows the Action to push updates to the repository
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update screenshots/README.md
+        run: |
+          python -c '
+          import os, re
+
+          img_dir = "screenshots"
+          readme_path = os.path.join(img_dir, "README.md")
+
+          if not os.path.exists(img_dir) or not os.path.exists(readme_path):
+              print("Screenshots directory or sub-README not found.")
+              exit()
+
+          # Find all images but exclude the README.md itself
+          valid_extensions = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+          images = sorted([
+              f for f in os.listdir(img_dir) 
+              if f.lower().endswith(valid_extensions) and f.lower() != "readme.md"
+          ])
+          
+          # Generate the HTML list (using relative filenames since the README is in the same folder)
+          html_content = ""
+          for img in images:
+              html_content += f"<img src=\"{img}\" width=\"400\" alt=\"{img}\" style=\"margin: 10px;\" />\n"
+
+          # Read current sub-README
+          with open(readme_path, "r") as f:
+              readme = f.read()
+
+          # Replace the content between the tags
+          pattern = r"(<!-- SCREENSHOTS_START -->)(.*?)(<!-- SCREENSHOTS_END -->)"
+          replacement = f"\\1\n{html_content}\\3"
+          new_readme = re.sub(pattern, replacement, readme, flags=re.DOTALL)
+
+          # Save updates
+          with open(readme_path, "w") as f:
+              f.write(new_readme)
+          '
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: auto-update screenshots/README.md" || exit 0
+          git push
