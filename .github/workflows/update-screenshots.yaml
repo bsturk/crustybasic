@@ -3,10 +3,11 @@ name: Update Subfolder Screenshots README
 on:
   push:
     paths:
-      - 'screenshots/**' # Triggers only when files inside screenshots/ change
+      - 'screenshots/**'
+    workflow_dispatch:
 
 permissions:
-  contents: write # Allows the Action to push updates to the repository
+  contents: write
 
 jobs:
   update-readme:
@@ -27,23 +28,21 @@ jobs:
               print("Screenshots directory or sub-README not found.")
               exit()
 
-          # Find all images but exclude the README.md itself
           valid_extensions = (".png", ".jpg", ".jpeg", ".gif", ".webp")
           images = sorted([
               f for f in os.listdir(img_dir) 
               if f.lower().endswith(valid_extensions) and f.lower() != "readme.md"
           ])
           
-          # Generate the HTML list (using relative filenames since the README is in the same folder)
+          # generate the HTML list (using relative filenames since the README is in the same folder)
           html_content = ""
           for img in images:
               html_content += f"<img src=\"{img}\" width=\"400\" alt=\"{img}\" style=\"margin: 10px;\" />\n"
 
-          # Read current sub-README
           with open(readme_path, "r") as f:
               readme = f.read()
 
-          # Replace the content between the tags
+          # put the screenshots between the 2 delimiters
           pattern = r"(<!-- SCREENSHOTS_START -->)(.*?)(<!-- SCREENSHOTS_END -->)"
           replacement = f"\\1\n{html_content}\\3"
           new_readme = re.sub(pattern, replacement, readme, flags=re.DOTALL)
