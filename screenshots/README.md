@@ -1,8 +1,9 @@
 # Screenshots
 
 This directory shows screenshots and emulator captures of CrustyBASIC example
-programs running on supported targets.  The images without 'cb' in their name
-are compiled from the same source listing.
+programs running on supported targets.  The images without -cb in their name
+are compiled from the same source listing.  Images with -dialect are original, 80s
+era listings compiled with crustyBASIC.
 
 <!-- SCREENSHOTS_START -->
 <table>
