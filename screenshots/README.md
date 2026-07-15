@@ -1,7 +1,8 @@
 # Screenshots
 
 This directory shows screenshots and emulator captures of CrustyBASIC example
-programs running on supported targets.
+programs running on supported targets.  The images without 'cb' in their name
+are compiled from the same source listing.
 
 <!-- SCREENSHOTS_START -->
 <img src="balls-c64.png" width="400" alt="balls-c64.png" style="margin: 10px;" />

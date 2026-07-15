@@ -34,20 +34,34 @@ jobs:
               if f.lower().endswith(valid_extensions) and f.lower() != "readme.md"
           ])
           
-          # generate the HTML list (using relative filenames since the README is in the same folder)
-          html_content = ""
-          for img in images:
-              html_content += f"<img src=\"{img}\" width=\"400\" alt=\"{img}\" style=\"margin: 10px;\" />\n"
+          columns = 4
+          html_content = "<table>\n"
+          
+          for i in range(0, len(images), columns):
+              html_content += "  <tr>\n"
+              row_images = images[i:i+columns]
+              for img in row_images:
+                  html_content += (
+                      f"    <td align=\"center\" valign=\"top\">\n"
+                      f"      <img src=\"{img}\" width=\"350\" alt=\"{img}\"><br>\n"
+                      f"      <sub><b>{img}</b></sub>\n"
+                      f"    </td>\n"
+                  )
+              # if the last row is not full, add empty cells to keep the table valid
+              if len(row_images) < columns:
+                  for _ in range(columns - len(row_images)):
+                      html_content += "    <td></td>\n"
+              html_content += "  </tr>\n"
+              
+          html_content += "</table>\n"
 
           with open(readme_path, "r") as f:
               readme = f.read()
 
-          # put the screenshots between the 2 delimiters
           pattern = r"(<!-- SCREENSHOTS_START -->)(.*?)(<!-- SCREENSHOTS_END -->)"
           replacement = f"\\1\n{html_content}\\3"
           new_readme = re.sub(pattern, replacement, readme, flags=re.DOTALL)
 
-          # Save updates
           with open(readme_path, "w") as f:
               f.write(new_readme)
           '
