@@ -9,12 +9,12 @@ era listings compiled with crustyBASIC.
 <table>
   <tr>
     <td align="center" valign="top">
-      <img src="balls-c64.png" width="350" alt="balls-c64.png"><br>
-      <sub><b>balls-c64.png</b></sub>
+      <img src="balls-c64-cb.png" width="350" alt="balls-c64-cb.png"><br>
+      <sub><b>balls-c64-cb.png</b></sub>
     </td>
     <td align="center" valign="top">
-      <img src="breakout-cb-a2600.png" width="350" alt="breakout-cb-a2600.png"><br>
-      <sub><b>breakout-cb-a2600.png</b></sub>
+      <img src="breakout-a2600-cb.png" width="350" alt="breakout-a2600-cb.png"><br>
+      <sub><b>breakout-a2600-cb.png</b></sub>
     </td>
     <td align="center" valign="top">
       <img src="char_dungeon-a800.png" width="350" alt="char_dungeon-a800.png"><br>
@@ -75,18 +75,18 @@ era listings compiled with crustyBASIC.
       <sub><b>color_grid-plus_4.png</b></sub>
     </td>
     <td align="center" valign="top">
-      <img src="colors-cb-vic20.png" width="350" alt="colors-cb-vic20.png"><br>
-      <sub><b>colors-cb-vic20.png</b></sub>
+      <img src="colors-vic20-cb.png" width="350" alt="colors-vic20-cb.png"><br>
+      <sub><b>colors-vic20-cb.png</b></sub>
     </td>
   </tr>
   <tr>
     <td align="center" valign="top">
-      <img src="extended_background-plus_4.png" width="350" alt="extended_background-plus_4.png"><br>
-      <sub><b>extended_background-plus_4.png</b></sub>
+      <img src="extended_background-plus_4-cb.png" width="350" alt="extended_background-plus_4-cb.png"><br>
+      <sub><b>extended_background-plus_4-cb.png</b></sub>
     </td>
     <td align="center" valign="top">
-      <img src="gdi_rectangles-winx64.png" width="350" alt="gdi_rectangles-winx64.png"><br>
-      <sub><b>gdi_rectangles-winx64.png</b></sub>
+      <img src="gdi_rectangles-winx64-cb.png" width="350" alt="gdi_rectangles-winx64-cb.png"><br>
+      <sub><b>gdi_rectangles-winx64-cb.png</b></sub>
     </td>
     <td align="center" valign="top">
       <img src="graphics-a800.png" width="350" alt="graphics-a800.png"><br>
@@ -129,8 +129,8 @@ era listings compiled with crustyBASIC.
       <sub><b>invaders_s-c64.png</b></sub>
     </td>
     <td align="center" valign="top">
-      <img src="koala-c64.png" width="350" alt="koala-c64.png"><br>
-      <sub><b>koala-c64.png</b></sub>
+      <img src="koala-c64-cb.png" width="350" alt="koala-c64-cb.png"><br>
+      <sub><b>koala-c64-cb.png</b></sub>
     </td>
   </tr>
   <tr>
@@ -139,8 +139,8 @@ era listings compiled with crustyBASIC.
       <sub><b>lemonade_stand-applesoft-dialect.png</b></sub>
     </td>
     <td align="center" valign="top">
-      <img src="luma_wave-plus_4.png" width="350" alt="luma_wave-plus_4.png"><br>
-      <sub><b>luma_wave-plus_4.png</b></sub>
+      <img src="luma_wave-plus_4-cb.png" width="350" alt="luma_wave-plus_4-cb.png"><br>
+      <sub><b>luma_wave-plus_4-cb.png</b></sub>
     </td>
     <td align="center" valign="top">
       <img src="meteor_dodge-a800.png" width="350" alt="meteor_dodge-a800.png"><br>
@@ -201,18 +201,18 @@ era listings compiled with crustyBASIC.
       <sub><b>taipan-applesoft-dialect.png</b></sub>
     </td>
     <td align="center" valign="top">
-      <img src="ted_palette-cb-plus4.png" width="350" alt="ted_palette-cb-plus4.png"><br>
-      <sub><b>ted_palette-cb-plus4.png</b></sub>
+      <img src="ted_palette-plus4-cb.png" width="350" alt="ted_palette-plus4-cb.png"><br>
+      <sub><b>ted_palette-plus4-cb.png</b></sub>
     </td>
   </tr>
   <tr>
     <td align="center" valign="top">
-      <img src="tile_neon-cb-dos16.png" width="350" alt="tile_neon-cb-dos16.png"><br>
-      <sub><b>tile_neon-cb-dos16.png</b></sub>
+      <img src="tile_neon-dos16-cb.png" width="350" alt="tile_neon-dos16-cb.png"><br>
+      <sub><b>tile_neon-dos16-cb.png</b></sub>
     </td>
     <td align="center" valign="top">
-      <img src="vga_burst-cb-dos16.png" width="350" alt="vga_burst-cb-dos16.png"><br>
-      <sub><b>vga_burst-cb-dos16.png</b></sub>
+      <img src="vga_burst-dos16-cb.png" width="350" alt="vga_burst-dos16-cb.png"><br>
+      <sub><b>vga_burst-dos16-cb.png</b></sub>
     </td>
     <td></td>
     <td></td>
