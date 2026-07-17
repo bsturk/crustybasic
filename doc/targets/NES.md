@@ -4,9 +4,9 @@ Use `@OPTION TARGET nes` for Nintendo Entertainment System or
 Famicom cartridges. The system name is `nes.orig`. Output is an iNES
 `.nes` file.
 
-For portable calls such as `CLS`, `POSITION`, `WAIT_FRAME`, `SOUND`,
-`JOY`, `JOY_BUTTON`, `ANY_INPUT`, and `SPRITE_*`, see
-[`../API.md`](../API.md).
+Portable runtime calls are documented in [`../API.md`](../API.md).
+This page covers NES modes, cartridge formats, mapper behavior, and
+hardware notes.
 
 ## Basics
 
@@ -18,6 +18,7 @@ For portable calls such as `CLS`, `POSITION`, `WAIT_FRAME`, `SOUND`,
 | RAM | `$0200-$05FF` compiler data, `$0600-$07FF` target runtime |
 | Text | 32x30 tile grid |
 | `REAL` | Not supported; use Q8.8 helpers for small fractional math |
+| String encoding | ASCII |
 | Keyboard | No |
 
 The NES has no operating system. The cartridge provides all input,
@@ -32,16 +33,25 @@ output is used, so sound and controller-only programs do not ship the
 font table. CHR ROM builds skip the built-in font upload; the supplied
 CHR file must contain the glyphs and tiles the program expects.
 
-`POSITION` clamps out-of-bounds coordinates to the last valid column or
-row.
+Cursor positioning clamps out-of-bounds coordinates to the last valid
+column or row.
 
 `CELL_GETC` first checks a small cache of recent text and cell writes.
 On a miss, it waits for vblank and reads the nametable through the PPU.
 There is no full RAM nametable shadow.
 
-The portable graphics calls cover cell/text work. Bitmap-style `PLOT`,
-`POINT`, and `LINE` are not meaningful on the NES target today.
-Use tiles, charmap calls, and sprites for game graphics.
+Graphics support covers cell/text work. Bitmap-style plotting is not
+meaningful on the NES target today. Use tiles, charmap calls, and
+sprites for game graphics. The default graphics mode is `CELL`.
+
+| Mode | NES mode | Size | Colors |
+| --- | --- | --- | --- |
+| `CELL` | PPU nametable cell mode | 32x30 | text |
+| `PPU_TEXT` | PPU nametable cell mode | 32x30 | text |
+| `BITMAP_HIRES` | not supported | | |
+| `BITMAP_LORES` | not supported | | |
+| `BITMAP_MULTICOLOR` | not supported | | |
+| `CELL_MULTICOLOR` | not supported | | |
 
 Common text escapes:
 
@@ -51,6 +61,17 @@ Common text escapes:
 | `{HOME}` | `$0B` |
 | `{CLEAR}`, `{CLR}` | `$0C` |
 | `{TAB}` | Four spaces |
+
+## Images
+
+Native image display supports `IMAGE_FMT_NES_SCREEN`: 16 palette bytes,
+1024 nametable and attribute bytes, and 4096 pattern table bytes.
+The converter accepts a `--chr`, `--nam`, and `--pal` file triplet, and
+indexed PNG or PCX sources. Images are linked into the program rather
+than loaded from files at runtime.
+
+CHR ROM builds skip the pattern-table upload; the image must use tile
+data already present in the supplied CHR file.
 
 ## PPU
 
@@ -73,8 +94,7 @@ timing.
 
 ## Sprites
 
-The NES has 64 hardware sprites in OAM. The portable `SPRITE_*` API
-uses those sprites.
+The NES has 64 hardware sprites in OAM. Sprite calls use those sprites.
 
 | Feature | Value |
 | --- | --- |
@@ -85,26 +105,21 @@ uses those sprites.
 | Palette | 4 sprite palettes |
 | Collision | Sprite 0 hit only |
 
-`SPRITE_DATA ID, TILE` selects a tile index. It does not copy bytes
-from `TILE` as an address.
+Sprite data selects a tile index. It does not copy bytes from that value
+as an address.
 
-Sprite writes update a RAM OAM shadow at `$0700-$07FF`. `SPRITES_FLUSH`
+Sprite writes update a RAM OAM shadow at `$0700-$07FF`. Sprite flushing
 waits for the next frame; the NMI handler performs OAM DMA from that
 shadow page.
 
 ## Sound
 
-`SOUND VOICE, FREQ, WAVEFORM, VOLUME` drives the four primary APU
-voices: pulse 1, pulse 2, triangle, and noise. The DMC channel has
-separate helpers. `SOUND_FREQ` and the portable note helpers use
-NTSC or PAL timer tables selected by `REGION`.
+Sound drives the four primary APU voices: pulse 1, pulse 2, triangle,
+and noise. Note helpers use NTSC or PAL timer tables selected by
+`REGION`. The DMC channel has separate target-specific helpers:
 
 | Call | Purpose |
 | --- | --- |
-| `SOUND VOICE, FREQ, WAVEFORM, VOLUME` | Start one voice. |
-| `SOUND_OFF VOICE` | Silence one voice. |
-| `SOUND_ALL_OFF` | Silence all voices. |
-| `SOUND_FREQ NOTE` | Convert a note number to a timer value. |
 | `DMC_LOAD ADDR_IDX, LEN_IDX, RATE` | Set up DMC sample playback. |
 | `DMC_TRIGGER` | Start DMC playback. |
 
@@ -112,9 +127,8 @@ APU register namespaces are available as `APU.*` and `APU_IO.*`.
 
 ## Fixed Point
 
-NES keeps `REAL` unsupported. Use the core unsigned Q8.8 helpers for
-small fractional math: `FX_FROM_INT`, `FX_FROM_PARTS`, `FX_INT`,
-`FX_FRAC`, `FXMUL`, and `FXDIV`.
+NES keeps `REAL` unsupported. Use the unsigned Q8.8 helpers for small
+fractional math.
 
 Common names:
 
@@ -129,15 +143,25 @@ Common names:
 | --- | --- |
 | Joystick ports | 2 |
 | Buttons | A, B, Select, Start |
+| Stick type | Digital |
 | Keyboard | No |
 | Paddle axes | 0 |
+| Keypad ports | 0 |
+| Keypad `INPUT` | No |
+| Mouse buttons | 0 |
 
-`JOY_BUTTON(PORT, N)` uses this order: A, B, Select, Start. A full
-controller read also includes Up, Down, Left, and Right. `ANY_INPUT`
-polls both controllers.
+Button order is A, B, Select, Start. A full controller read also
+includes Up, Down, Left, and Right. Any-input polling checks both
+controllers.
 
 Typed `INPUT` is rejected at compile time on NES because the target has
 no keyboard text input or line editor.
+
+## Timing
+
+The runtime tick source is the NMI frame counter, one tick per frame.
+The true rate is about 60.0988 Hz on NTSC and 50.0070 Hz on PAL.
+Timer metadata reports 60 Hz for NTSC builds and 50 Hz for PAL builds.
 
 ## Mappers
 
@@ -156,19 +180,18 @@ Select a banked mapper like this:
 ```
 
 By default NES mappers use CHR RAM. Load tile graphics into CHR RAM at
-runtime with helpers such as `TILE_DEFINE`, `SPRITE_DATA_8X8`, or
-`NES_CHR_UPLOAD`.
+runtime with tile, sprite, or `CHR_UPLOAD`.
 
 To build a cart with CHR ROM, pass a CHR file:
 
 ```bash
-crustybasic build program.cbs --set target=nes --set chr-rom=tiles.chr -o /tmp/program.nes
+crustybasic build <input.cbs> --set target=nes --set chr-rom=tiles.chr -o /tmp/program.nes
 ```
 
 Source can also declare the same build input:
 
 ```basic
-@OPTION NES_CHR_ROM "tiles.chr"
+@OPTION CHR_ROM "tiles.chr"
 ```
 
 CHR ROM builds package those bytes into the iNES file and skip runtime
@@ -176,8 +199,8 @@ pattern-table uploads. Text, tiles, sprites, and native images must use
 tile data already present in the supplied CHR file.
 
 Use `@BANK PRG N` for switched-bank code and `DATA`. `MAIN` stays in the
-fixed bank. With banked NES mappers, switched-bank routines cannot call
-directly into another switched bank yet.
+fixed bank. UxROM, MMC1, and MMC3 share the same `@BANK` behavior. Calls
+between switched banks route through the fixed bank automatically.
 With MMC3, `@BANK PRG` uses the `$8000-$9FFF` 8K PRG window; the fixed
 reset/vector bank lives at `$E000-$FFFF`. MMC3 IRQ and CHR banking
 register selection helpers are not exposed yet.

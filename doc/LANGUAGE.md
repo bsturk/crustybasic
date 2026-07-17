@@ -8,8 +8,10 @@ The basics:
 - Procedures and flow: `PROC`, `FOR`/`NEXT`, `WHILE`,
   `DO`. `GOTO` and `GOSUB` are also available.
 - Runtime and portable API calls are documented in [API.md](API.md).
+  Core builtins are documented below.
 - Dialects help with compiling "old" BASIC listings.
-  They choose compatible defaults and translate the source.
+  Compatible defaults are chosen and the source is translated to crustyBASIC.
+  Dialects can also be used for new development, if desired.
 
 Companion pages: [API.md](API.md) covers portable/runtime APIs,
 target capabilities, and hardware/memory calls; [USAGE.md](USAGE.md)
@@ -79,7 +81,8 @@ X = 1 : Y = 2 : PRINT X + Y
 
 Complete line-numbered listings are detected automatically. Mixed
 numbered and unnumbered program lines are rejected. New CrustyBASIC
-code does not need line numbers, but can use them if desired.
+code does not need line numbers, but can use them if desired. Use
+`@OPTION USE_LINE_NUMBERS TRUE` to force line-number mode.
 
 ```basic
 10 PRINT "HELLO"
@@ -221,7 +224,7 @@ expression only.
 Signed integers are two's complement; division truncates toward zero,
 `MOD` keeps the sign of the left operand.
 
-`REAL` depends on the target - see [per-target support](API.md#screen-real-and-text-encoding).
+`REAL` depends on the target - see the target docs under [`targets/`](targets/).
 
 ## Declaration examples
 
@@ -240,7 +243,7 @@ DIM SCORES(10) AS U16        ' 11 elements with base 0, 0...10
 DIM GRID[7, 7] AS U8
 DIM MAP(15, 11), SHADOW(15, 11) AS U8
 DIM VALUE AS U8 = 0
-DIM NUMS(4) AS U8 = 1, 2, 3, 4, 5
+DIM NUMS[4] AS U8 = 1, 2, 3, 4, 5
 PRINT LEN(NUMS)              ' element count
 
 SCORE#2 AS U16               ' DIM-less scalar declaration
@@ -248,14 +251,17 @@ TITLE$ AS STRING * 80
 LEFT_EDGE, RIGHT_EDGE AS U16
 SCORES(10) AS U16            ' DIM-less array declaration
 GRID[7, 7] AS U8
+FLAGS(3)
+BUF[3] AS U8 = 1, 2, 3, 4
 SCORES#2[10]                 ' U16 from suffix
 NAMES[3] AS STRING
 ```
 
 Array bounds are inclusive. `A(10)` has indexes `0..10` (or `1..10`
-with `ARRAY_BASE 1`). Either `()` or `[]` works for references.
-`LEN(A)` returns the element count. `ADDR(A(I))` returns the address of
-one element; for string arrays this is the element's string descriptor.
+with `ARRAY_BASE 1`). Either `()` or `[]` works for array declarations,
+initializer lists, and references. `LEN(A)` returns the element count.
+`ADDR(A(I))` returns the address of one element; for string arrays this
+is the element's string descriptor.
 
 If every array bound is a compile time constant, the array uses static
 storage. If an executable declaration uses a runtime expression for the
@@ -276,8 +282,9 @@ and no `STRING` elements. Repeating the executable declaration leaves
 the existing allocation in place. The allocated bytes are zeroed.
 Allocation failure ends the program.
 
-Parenthesized DIM-less array declarations need `AS`. Without it,
-`A(10)` is parsed as a call or array reference.
+For `A(10)` statements, a matching `PROC A` is treated as a call. Without
+a matching routine, it is a DIM-less array declaration. A name cannot be
+both callable and storage.
 
 Declarations inside a `PROC` belong to that `PROC`, and the value is
 kept between calls. A local name cannot hide a global, `CONST`,
@@ -321,7 +328,7 @@ buffer.
 CONST SCREEN_W = 40
 CONST SCREEN_H = 25
 CONST PI       = 3.14159
-CONST SHAPE(7) AS U8 = $3C, $42, $A5, $81, $A5, $99, $42, $3C
+CONST SHAPE[7] AS U8 = $3C, $42, $A5, $81, $A5, $99, $42, $3C
 CONST FOO(2) AS U8 = %
     ..XX.X..
     ..X..XX.
@@ -343,6 +350,7 @@ PRINT HEX(SHAPE(2))
 
 ```basic
 [@ASYNC]
+[@WARNING "message"]
 PROC name [([IN|OUT|INOUT] param [AS type][, ...])] [AS type]
     [RETURN [expr]]
 ENDPROC
@@ -381,8 +389,15 @@ A few things:
 - Value parameters accept numeric boundary conversions. Lossless
   widening is silent; narrowing or signedness-changing conversions that
   can lose information compile with a warning.
-- Use `AS ADDR OF U8` for a byte storage address. Pass `ADDR BYTE_ARRAY`
-  or a raw numeric address. Passing `ADDR` of a non-byte array is an error.
+- Use `AS type ADDR` for a storage address. Pass `ADDR ARRAY`,
+  `ADDR ARRAY(I)`, or a raw numeric address. When passing addressable
+  storage, the storage element type must match the parameter element type.
+- Inside the PROC, a `type ADDR` parameter can be indexed with `[]` or
+  `()` to read and write memory at the passed address. The element type
+  controls the stride. Indexed `ADDR` parameters currently support `U8`,
+  `I8`, `U16`, and `I16` elements. The parameter is also a normal
+  address value, so memory operations like `PEEK` and `POKE` can use it
+  directly.
 - Assigning to a normal parameter does not affect the caller.
 - `OUT` parameters require an assignable variable argument with the
   exact same type. The value is copied out when the PROC returns.
@@ -393,6 +408,25 @@ A few things:
 - A typed PROC can be used anywhere an expression of its return type is valid.
 - `@ASYNC` marks a PROC as safe to call from outside the normal main
   program flow, such as from an VBI, etc.
+- `@WARNING "message"` emits the message when user code calls that
+  PROC overload. Calls introduced only by library code stay quiet.
+
+```basic
+BUF[4] AS U8
+WORDS[2] AS U16
+
+PROC TOUCH_BYTES(P AS U8 ADDR)
+    P[0] = 1
+    P(1) = 2
+ENDPROC
+
+PROC TOUCH_WORDS(P AS U16 ADDR, I AS U8)
+    P[I] = 4660
+ENDPROC
+
+TOUCH_BYTES ADDR BUF
+TOUCH_WORDS ADDR WORDS, 1
+```
 
 ### PROC overloads
 
@@ -480,14 +514,17 @@ bit-on-char = "#"
 bit-off-char = "-"
 ```
 
-### Random numbers
+### Core builtins
 
-`RND()` returns the target's raw random byte (`U8`). It is cheap and
-handy for masks and small choices:
+These functions and operators are part of the language.
 
-```basic
-COLOR = RND() & 7
-```
+#### Random numbers
+
+| Function          | Returns            | Description                                      |
+| ----------------- | ------------------ | ------------------------------------------------ |
+| `RAND()`          | `REAL`             | Fraction from `0` up to, but not including, `1`. |
+| `RAND(max)`       | same type as `max` | Scaled random value. Integer `RAND(0)` returns `0`. |
+| `RAND_SEED(seed)` | none               | Seed `RAND`. Seed `0` is treated as `1`.         |
 
 `RAND()` returns a `REAL` fraction from `0` up to, but not including,
 `1` on targets with `REAL`.
@@ -496,26 +533,117 @@ COLOR = RND() & 7
 maximum, it returns a value from `0` up to, but not including, `max`.
 Integer `RAND(0)` returns `0`.
 
+`RAND_SEED(seed)` seeds the target random source when it has software
+state. Targets whose random source is hardware or ROM backed keep their
+native source until `RAND_SEED` is called, then use a seeded software
+stream for later `RAND` calls.
+
 ```basic
+RAND_SEED 42
 X#2 = RAND(320)
 JITTER#1 = RAND(5)
+COLOR#1 = RAND(U8(8))
 R! = RAND()
 ```
 
 Legacy dialects may also provide their original `RND(x)` behavior. Use
 `RAND(max)` when you want the portable bounded form.
 
-### Numeric helpers
+#### Numeric helpers
 
-`INC(x)` returns `x + 1`; `DEC(x)` returns `x - 1`. The return type
-matches the argument type. They accept `U8`, `U16`, `U32`, `I8`, `I16`,
-and `I32`, including suffix-selected variables such as `COUNT#1` or
-`OFFSET%2`.
+| Function    | Returns             | Description                                      |
+| ----------- | ------------------- | ------------------------------------------------ |
+| `MIN(a, b)` | common numeric type | Smaller value.                                   |
+| `MAX(a, b)` | common numeric type | Larger value.                                    |
+| `INC(x)`    | same type as `x`    | `x + 1`.                                         |
+| `DEC(x)`    | same type as `x`    | `x - 1`.                                         |
+| `DIG(n)`    | `U8`                | `1` for character codes `0` through `9`.         |
+| `DIG(s$)`   | `U8`                | `1` for one-character strings `"0"` through `"9"`. |
+
+`INC` and `DEC` accept `U8`, `U16`, `U32`, `I8`, `I16`, and `I32`,
+including suffix-selected variables such as `COUNT#1` or `OFFSET%2`.
 
 ```basic
 COUNT#1 = INC(COUNT#1)
 OFFSET%2 = DEC(OFFSET%2)
 ```
+
+#### Bitwise
+
+| Function     | Operator | Returns | Description                       |
+| ------------ | -------- | ------- | --------------------------------- |
+| `BAND(a, b)` | `A & B`  | `U16`   | Bitwise AND.                      |
+| `BOR(a, b)`  | `A | B`  | `U16`   | Bitwise OR.                       |
+| `BXOR(a, b)` | `A ^ B`  | `U16`   | Bitwise XOR.                      |
+| `BNOT(x)`    | -        | `U16`   | Bitwise NOT, one's complement.    |
+| `SHL(x, n)`  | `X << N` | `U16`   | Shift left. Operator form requires a constant integer literal shift count. |
+| `SHR(x, n)`  | `X >> N` | `U16`   | Shift right. Operator form requires a constant integer literal shift count. |
+
+#### Logical
+
+For boolean conditions (`IF`, `WHILE`, `UNTIL`) and truth-valued
+expressions. These are operators, not PROCs, and return `0` or `1`.
+Both sides of `AND`, `OR`, and `XOR` are always evaluated. The
+operators do not short-circuit.
+
+`TRUE` and `FALSE` are reserved constants and can be used anywhere a
+numeric expression is accepted. CrustyBASIC uses the `U8` values `1`
+and `0`. Compatibility dialects that use `-1` for true translate
+user-written `TRUE` to that native value.
+
+| Operator                | Description                                |
+| ----------------------- | ------------------------------------------ |
+| `A AND B` or `A && B`   | `1` only if both sides are non-zero.       |
+| `A OR B` or `A \|\| B`  | `1` if either side is non-zero.            |
+| `A XOR B`               | `1` if exactly one side is non-zero.       |
+| `NOT A` or `!A`         | `1` if the operand is zero, `0` otherwise. |
+
+#### REAL functions
+
+The target has to support `REAL` to use these.
+
+| Function    | Description                                                                |
+| ----------- | -------------------------------------------------------------------------- |
+| `POW(a, b)` | Exponentiation. Integer operands stay integer. For `REAL`, small non-negative integer constant exponents are optimized automatically; other exponents use the target's FP support. |
+| `INT(x)`    | `REAL` to integer, truncate.                                               |
+| `LOG(x)`    | Natural log.                                                               |
+| `SGN(x)`    | Sign as a `REAL`.                                                          |
+| `SIN(x)`    | Sine. Radians by default, degrees after `DEG()`.                           |
+| `COS(x)`    | Cosine. Same convention.                                                   |
+| `ATN(x)`    | Arctangent. Same convention.                                               |
+
+`DEG()` and `RAD()` flip the process-wide trig angle mode. `RAD()` is
+the default.
+
+#### String functions
+
+| Function                  | Returns  | Description                                       |
+| ------------------------- | -------- | ------------------------------------------------- |
+| `LEN(s$)`                 | `U8`     | Character count.                                  |
+| `ASC(s$)`                 | `U8`     | First character code.                             |
+| `CHR(n)`                  | `STRING` | One-character string.                             |
+| `STR(n)`                  | `STRING` | Decimal representation.                           |
+| `VAL(s$)`                 | `U16`    | Parse unsigned integer.                           |
+| `LEFT(s, n)`              | `STRING` | Leading characters.                               |
+| `RIGHT(s, n)`             | `STRING` | Trailing characters.                              |
+| `MID(s, pos)`             | `STRING` | Substring from a 1-based position.                |
+| `MID(s, pos, len)`        | `STRING` | Substring of the requested length.                |
+| `INSTR(haystack, needle)` | `U16`    | 1-based position, 0 if absent. |
+| `UPPER(s)`                | `STRING` | ASCII uppercase copy.                             |
+| `LOWER(s)`                | `STRING` | ASCII lowercase copy.                             |
+| `LTRIM(s)`                | `STRING` | Strip leading ASCII spaces.                       |
+| `RTRIM(s)`                | `STRING` | Strip trailing ASCII spaces.                      |
+| `TRIM(s)`                 | `STRING` | Both ends.                                        |
+| `SPACE(n)`                | `STRING` | ASCII spaces.                                     |
+| `REPLICATE(n, c$)`        | `STRING` | Copies of the first character.                    |
+| `HEX(n)`                  | `STRING` | Uppercase hex, variable width.                    |
+| `OCT(n)`                  | `STRING` | Octal, variable width.                            |
+| `BIN(n)`                  | `STRING` | Binary, variable width.                           |
+| `NIBBLE(n)`               | `STRING` | Single hex digit for `0..15`.                     |
+
+String declaration syntax, capacities, and `MID(...) = ...` slice
+assignment are documented in [Strings](#strings). `BIND` can point a
+string at caller-managed memory.
 
 ### Operators
 
@@ -545,7 +673,7 @@ error.
 
 | Level | Operators                  | Notes                |
 | ----- | -------------------------- | -------------------- |
-| 1     | unary `-`, prefix `&`      | highest              |
+| 1     | unary `-`, prefix `&`, operand `NOT` | highest where an operand is required |
 | 2     | `*` `/` `\` `MOD`          | left-associative     |
 | 3     | `+` `-`                    | left-associative     |
 | 4     | `<<` `>>`                  | left-associative     |
@@ -553,12 +681,14 @@ error.
 | 6     | `^`                        | bitwise XOR          |
 | 7     | `|`                        | bitwise OR           |
 | 8     | `=` `<>` `<` `<=` `>` `>=` | left-associative     |
-| 9     | `NOT` (or `!`)             | applies to compares  |
+| 9     | leading `NOT` (or `!`)     | applies to compares  |
 | 10    | `AND` (or `&&`)            | left-associative     |
 | 11    | `OR` (or `\|\|`)           | left-associative     |
 | 12    | `XOR`                      | lowest               |
 
-`NOT X > 5` means `NOT (X > 5)`. `A + B << 2` means `(A + B) << 2`.
+`NOT X > 5` means `NOT (X > 5)`. Where an arithmetic operand is
+required, `NOT` applies to that operand: `A * NOT B` means
+`A * (NOT B)`. `A + B << 2` means `(A + B) << 2`.
 
 ## Control flow
 
@@ -756,6 +886,21 @@ INPUT "Enter name: "; NAME$
 Reads one echoed line from the text input device. Blocks until the Enter key
 is pressed.
 
+For single key reads, use the input API:
+
+```basic
+K = KEY()
+K$ = INKEY()
+K = INKEY_CODE()
+K = RAWKEY_CODE()
+```
+
+`KEY()`, `INKEY()`, and `INKEY_CODE()` read typed character events from
+the target's normal key path. `KEY()` blocks; `INKEY()` and
+`INKEY_CODE()` return immediately. `RAWKEY_CODE()` reads current held key
+state when the target has a direct key path, so it is better for games
+and controls.
+
 ### GET
 
 ```basic
@@ -765,6 +910,8 @@ GET CH$
 
 Blocks until a key is available. Numeric variables get the encoded
 character code; string variables get a one-character string. No echo.
+This is a typed character read like `KEY()`, not a current held key
+poll.
 
 ### DATA, READ, RESTORE
 
@@ -788,8 +935,8 @@ undefined.
 ## REAL floating point
 
 `REAL` is optional and target dependent. Declaring `REAL` on a target
-without FP is a compile error. See [API.md](API.md#real) for helper
-functions and [per-target support](API.md#screen-real-and-text-encoding).
+without FP is a compile error. See [REAL functions](#real-functions)
+for helper functions and the target docs under [`targets/`](targets/).
 
 ## Inline assembly
 
@@ -835,7 +982,8 @@ ASM
 ENDASM
 ```
 
-`CONST` names are (currently) not valid in `{...}` assembly interpolation.
+`{NAME}` may also name an integer `CONST`; in that case it expands to
+the evaluated literal value. `STRING` and `REAL` constants are rejected.
 
 Inside a typed `PROC`, `{RETURN}` expands to that PROC's return-value
 slot. If an unconditional tail `ASM` block references `{RETURN}`, it
@@ -887,9 +1035,9 @@ ENDASM
 
 Inside a `@STARTUP` block, `{...}` interpolation first matches the
 startup placeholders below, and otherwise falls back to `DIM` global
-names like a regular `ASM` block. The block must reference
-`{entry_label}` (the compiled program's entry point) or the compile
-fails.
+names or integer `CONST` values like a regular `ASM` block. The block
+must reference `{entry_label}` (the compiled program's entry point) or
+the compile fails.
 
 | Placeholder | Expands to |
 | --- | --- |
@@ -946,21 +1094,48 @@ ENDPROC
 - Bank numbers start at `0`. The always-available main area is not
   counted as a bank.
 - `PROC MAIN` stays in the main area. Put shared helper PROCs there too.
-- Code in the main area can call any bank. Code inside a bank can call
-  the main area, but not another bank.
+- Code in the main area can call any bank.
 - Inside `@BANK PRG N ... @ENDBANK`, the top level can contain only
   `PROC`, `DATA`, and `DATA` labels. Put `DIM`, `CONST`, inline `ASM`,
   and ordinary statements outside the bank block.
 - Do not put `@BANK` blocks inside other `@BANK` blocks. Every
   `@ENDBANK` must match an earlier `@BANK`.
-- A banked PROC can `READ` and `RESTORE` that bank's own `DATA`. If
-  code in the main area needs banked `DATA`, put the read in a PROC in
-  that bank and call it.
-- `RESTORE LABEL` can jump only to `DATA` in the same bank. Code in the
-  main area can restore only main-area `DATA`.
 - Each call to a banked PROC starts `READ` at that bank's first `DATA`
   item. Use `RESTORE LABEL` when you need a specific item.
 - String and `REAL` literals live with the bank that uses them.
+
+Calling and DATA rules depend on the mapper's shape.
+
+On **direct-fixed mappers** — the fixed window stays mapped while any
+switched bank is active, and every banked PROC has a fixed-bank
+trampoline (`xegs32`, NES `uxrom`/`mmc1`/`mmc3`):
+
+- Code in any bank can call any other bank; cross-bank calls route
+  through the callee's fixed-bank trampoline automatically.
+- Unannotated PROCs are placed automatically; oversized call-graph
+  groups are split across banks, largest PROC first, preferring the
+  bank that already holds a PROC's callers and callees.
+- `ADDR(PROC)` pins an auto-placed PROC to the fixed bank so raw
+  addresses (interrupt handlers, call pointers) stay valid with any
+  switched bank mapped.
+- Main-area (non-`@BANK`) `DATA` is readable from **any** bank: the
+  DATA cursor tracks the owning bank and the read helpers map it in
+  around each fetch. When the fixed bank overflows, the compiler
+  spills trailing `RESTORE`-target-delimited `DATA` runs into
+  switched-bank free space; a `RESTORE`-then-`READ` sequence stays
+  inside one relocated run, but sequential `READ`s that cross from
+  one relocated run into the next are not supported.
+- Explicit `@BANK PRG N` `DATA` keeps the same-bank rule below.
+
+On **other banked mappers** (whole-window switching like EasyFlash, or
+replicated fixed content like CoCo `banked_16k`):
+
+- Code inside a bank can call the main area, but not another bank.
+- A banked PROC can `READ` and `RESTORE` only that bank's own `DATA`.
+  If code in the main area needs banked `DATA`, put the read in a PROC
+  in that bank and call it.
+- `RESTORE LABEL` can jump only to `DATA` in the same bank. Code in
+  the main area can restore only main-area `DATA`.
 
 Some mappers expose source-level asset banks too. On NES MMC3,
 `@BANK CHR N "path"` places one file into an 8K CHR ROM bank.
@@ -978,16 +1153,20 @@ program is being compiled.
 ### @IF, @ELIF, @ELSE, @ENDIF
 
 ```basic
-@IF TARGET = "c64" THEN
+@IF TARGET = c64 THEN
     SID.MODEVOL = 15
-@ELIF TARGET = "atari800" THEN
+@ELIF TARGET = atari800 THEN
     POKEY.AUDCTL = 0
 @ELSE
     @ERROR "target does not support this module"
 @ENDIF
 
-@IF SYSTEM = "apple2.plus" THEN
+@IF SYSTEM = apple2.plus THEN
     @INCLUDE "targets/apple2/applesoft_rom.cbi"
+@ENDIF
+
+@IF CODE_STORAGE = ram THEN
+    PRINT "loaded from writable program memory"
 @ENDIF
 
 @IF DEFINED("DEBUG") THEN
@@ -1007,28 +1186,37 @@ Things `@IF` can check:
 
 | Form                                                | Meaning                                                                                                |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `TARGET = "name"`                                   | Active target name (must be a target: `apple2`, `atari800`, `atari5200`, `atari2600`, `c64`, `coco`, `nes`, `plus4`, `vic20`). |
-| `SYSTEM = "name"`                                   | Active system name (e.g. `apple2.plus`, `c64.cart`). Using a target name here is a compile error.      |
-| `CPU = "6502"`                                      | Current CPU string.                                                                                    |
+| `TARGET = name`                                     | Active target name, such as `apple2`, `atari800`, `atari5200`, `atari2600`, `c64`, `c128`, `plus4`, `vic20`, `coco`, `nes`, `dos16`, or `winx64`. |
+| `SYSTEM = name`                                     | Active system name, such as `apple2.plus`, `atari800.xl`, `c64.orig`, `coco.ecb`, or `nes.orig`. Using a target name here is a compile error. |
+| `CPU = 6502`                                        | Current CPU string, such as `6502`, `6809`, or `z80`.                                                  |
 | `TARGET_C64`, `TARGET_APPLE2`, ...                  | True when the active target matches.                                                                   |
-| `SYSTEM_APPLE2_PLUS`, `SYSTEM_C64_CART`, ...        | True when the active system matches.                                                                   |
-| `CPU_6502`, `CPU_6809`                              | CPU flag.                                                                                              |
+| `SYSTEM_APPLE2_PLUS`, `SYSTEM_C64_ORIG`, ...        | True when the active system matches.                                                                   |
+| `CPU_6502`, `CPU_6809`, `CPU_Z80`                   | CPU flag.                                                                                              |
 | `CB_VERSION = "1.1.0"`                              | Compiler version string (matches `crustybasic --version`).                                             |
 | `CB_VERSION_MAJOR`, `CB_VERSION_MINOR`, `CB_VERSION_PATCH` | Integer parts of the compiler version; use with `>=`, `<`, etc. for range checks.               |
 | `DEFINED("symbol")`                                 | Symbol set with `@DEFINE`.                                                                             |
 | `HAS_CHIP("name")`                                  | Target exposes the chip.                                                                               |
-| `JOY_PORTS`, `GRAPHICS_AVAILABLE`, `SPRITE_KIND`, etc. | Target constants such as controller counts and supported APIs. |
+| `JOY_PORTS`, `GRAPHICS_AVAILABLE`, `BITMAP_AVAILABLE`, `PLOT_AVAILABLE`, `SPRITE_KIND`, etc. | Target constants such as controller counts and supported APIs. |
 
 Conditions support `AND`, `OR`, `NOT`, parentheses, booleans,
 strings, decimal integers, `$` hex integers, and the usual
 comparisons.
 
+String comparisons accept bare values when the left side is a string,
+so `TARGET = c64`, `SYSTEM = vic20.8k`, `CPU = 6502`, and
+`SYSTEM = atari800.xe`, and `CODE_STORAGE = ram` are valid. Quoted strings are still valid and are
+required for the empty string or values that are not simple names, such
+as `TARGET <> ""`.
+
 Common coarse checks are `TEXT_OUTPUT_AVAILABLE`, `TEXT_CHARMAP_AVAILABLE`,
-`GRAPHICS_AVAILABLE`, `FRAME_AVAILABLE`, and
-`SPRITE_AVAILABLE`. `CODE_STORAGE` is `"ram"` for
-writable program images and `"rom"` for cartridge/ROM images. `TARGET`
+`GRAPHICS_AVAILABLE`, `BITMAP_AVAILABLE`, `PLOT_AVAILABLE`,
+`FRAME_AVAILABLE`, and `SPRITE_AVAILABLE`. `GRAPHICS_AVAILABLE` means the
+target provides portable graphics drawing hooks such as `PLOT`; fixed
+cell targets may still accept `DISPLAY(CELL)`. Use `BITMAP_AVAILABLE`
+when a program needs a real `BITMAP_*` display surface. `CODE_STORAGE` is `ram` for
+writable program images and `rom` for cartridge/ROM images. `TARGET`
 is the active target name
-(e.g. `"c64"`, `"apple2"`), which is useful when the system name
+(e.g. `c64`, `apple2`, `coco`), which is useful when the system name
 varies but you want to branch on the target.
 
 ### @WARN
@@ -1064,9 +1252,9 @@ case-sensitive.
 
 | Placeholder | Expands to |
 | ----------- | ---------- |
-| `{target}` | Target name, such as `apple2` or `c64`. |
-| `{system}` | Full system name, such as `apple2.plus` or `c64.cart`. |
-| `{program_name}` | Program filename without extension, such as `breakout` for `breakout.cbs`. |
+| `{target}` | Target name, such as `apple2`, `atari800`, `c64`, or `nes`. |
+| `{system}` | Full system name, such as `apple2.plus`, `atari800.xl`, or `c64.orig`. |
+| `{program_name}` | Program filename without extension. |
 | `{media}` | Media variant, such as `cart`, when the selected system has one. |
 | `{cpu}` | CPU name, such as `6502` or `6809`. |
 | `{mapper}` | Selected mapper, such as `nrom` or `uxrom`, when one is active. |
@@ -1079,10 +1267,12 @@ Set with `@OPTION` or the CLI.
 ```basic
 @OPTION TARGET c64
 @OPTION DIALECT atari_basic
-@OPTION MAPPER uxrom
+@OPTION OUTPUT_TYPE cart
+@OPTION MAPPER supergames
 @OPTION ARRAY_BASE 0
 @OPTION NUMERIC_MODE INTEGER
 @OPTION MATH_REAL AUTO
+@OPTION BUILTIN_REAL AUTO
 @OPTION START_PROGRAM $2001
 @OPTION START_CODE $2100
 @OPTION START_DATA $6000
@@ -1092,33 +1282,46 @@ Set with `@OPTION` or the CLI.
 
 | Option                           | Values                                  | What it does                                                                  |
 | -------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------- |
-| `TARGET`                         | target name                             | Select the output target (one of `apple2`, `atari800`, `atari5200`, `atari2600`, `c64`, `coco`, `nes`, `plus4`, `vic20`). Must come before target dependent source. Passing a system name here is a compile error. |
-| `SYSTEM`                         | system name                             | Select a specific system (e.g. `apple2.plus`, `c64.cart`). Implies its parent target. Passing a target name here is a compile error. |
+| `TARGET`                         | target name                             | Select the output target, such as `apple2`, `atari800`, `atari5200`, `atari2600`, `c64`, `c128`, `plus4`, `vic20`, `coco`, `nes`, `dos16`, or `winx64`. Must come before target dependent source. Passing a system name here is a compile error. |
+| `SYSTEM`                         | system name                             | Select a specific system, such as `apple2.plus`, `atari800.xl`, `c64.orig`, `coco.ecb`, or `nes.orig`. Implies its parent target. Passing a target name here is a compile error. |
 | `DIALECT`                        | dialect name                            | Apply that dialect's defaults to options you haven't set.                     |
+| `ROM`                            | ROM profile name                        | Select a ROM profile for targets that expose one.                             |
+| `OUTPUT_TYPE`                    | output name                             | Select a manifest output such as `cart`, `disk`, or `cart-easy-flash`.        |
 | `THROTTLE`                       | `0..65535`                              | MOSLO-style delay. `0` disables throttling.                                   |
-| `BITMAP_BANK`                    | `0..3`                                  | Target defined bitmap/screen memory bank.                                     |
+| `TILE_BACKEND`                   | `TILE_CELL`, `TILE_NATIVE`, `TILE_BITMAP`, `TILE_KERNEL` | Select the tile drawing backend at compile time.                |
 | `MAPPER`                         | mapper name                             | Pick a cartridge mapper.                                                      |
 | `NUMERIC_MODE`                   | see below                               | Default numeric policy.                                                       |
 | `MATH_REAL`                      | `AUTO`, `TARGET`, `BUILTIN`             | Select the REAL math implementation.                                          |
+| `BUILTIN_REAL`                   | `AUTO`, `Q16_16`, `Q24_8`               | Select the compiler-provided REAL format.                                     |
 | `MATH_INTEGER`                   | `AUTO`, `TARGET`, `BUILTIN`             | Select the integer math implementation.                                       |
 | `START_PROGRAM`                  | address                                 | Set the outer loaded program wrapper start when the startup format has one.   |
 | `START_CODE`                     | address                                 | Set the generated machine code start address.                                 |
 | `START_DATA`                     | address                                 | Set the mutable data start address for split code/data layouts.               |
+| `STRING_BUFFER_LENGTH`           | `2..256`                                | Set the default and runtime string buffer length.                             |
+| `CHR_ROM`                        | path string                             | Include a CHR ROM file in NES cartridge output.                               |
 | `STARTUP`                        | startup name                            | Select a named startup template from the target manifests (e.g. `vic20_basic_8k`). A startup with program-wrapper metadata also moves `START_PROGRAM`/`START_CODE` to match. |
+| `MEMORY_REGION`                  | target region name                      | Add a named target memory region. Repeating the option adds more regions.     |
+| `MEMORY_ACTION`                  | target action name                      | Add a named target startup action.                                            |
 | `REGION_NTSC`, `REGION_PAL`      | flag                                    | Pick timing/frequency tables. Default is NTSC.                                |
-| `INLINE_ASM`                     | `ON`, `OFF`                             | Allow `ASM ... ENDASM`.                                                       |
+| `INLINE_ASM`                     | `TRUE`, `FALSE`                         | Allow `ASM ... ENDASM`.                                                       |
 | `ARRAY_BASE`                     | `0`, `1`                                | First array index.                                                            |
-| `FOLD_LOWERCASE_TO_UPPERCASE`    | `ON`, `OFF`                             | Uppercase lowercase ASCII before target encoding.                             |
+| `FOLD_LOWERCASE_TO_UPPERCASE`    | `TRUE`, `FALSE`                         | Uppercase lowercase ASCII before target encoding.                             |
+| `USE_LINE_NUMBERS`               | `TRUE`, `FALSE`                         | Force line-number mode. Complete listings are detected automatically.         |
 
-Some targets define additional source-only `@OPTION`s for their own
-hardware profiles. See the individual target docs for those.
+Targets may also define their own `@OPTION`s. See the individual target
+docs for those.
+
+CLI `--set throttle=N` overrides `@OPTION THROTTLE N`.
+
+### Numeric and math options
 
 `NUMERIC_MODE` is normally chosen by the selected dialect. Override it
 only when you want to change the dialect or native numeric policy:
 
 - `INTEGER` - unsuffixed numeric names are integer.
 - `REAL` - unsuffixed numeric names are `REAL`.
-- `REAL_NARROW` - REAL-default dialect mode; see [Dialects](#dialects).
+- `REAL_NARROW` - unsuffixed numeric names default to `REAL`, but
+  proven integer-only implicit variables may use integer storage.
 - `INTEGER_ONLY_WARN` - integer names, warn on REAL constructs.
 - `INTEGER_ONLY_ERROR` - integer names, error on REAL constructs.
 
@@ -1132,6 +1335,11 @@ types are known. They do not make a value `REAL` or integer:
 | `TARGET`  | Use the machine's ROM/runtime math. Error if unavailable. |
 | `BUILTIN` | Use CrustyBASIC's own math. Error if unavailable. |
 
+`BUILTIN_REAL` chooses the builtin `REAL` format when `MATH_REAL` is
+`BUILTIN`, or when `MATH_REAL AUTO` resolves to builtin math. `AUTO`
+uses the target's preferred builtin format. `Q16_16` has more
+fractional precision; `Q24_8` has more whole-number range.
+
 `TARGET` and `BUILTIN` are fixed choices. `--set optimize=speed` and
 `--set optimize=size` do not change them.
 
@@ -1142,7 +1350,46 @@ smaller choice. Otherwise it uses the target's normal default.
 Integer math uses `MATH_INTEGER`. `REAL` math uses `MATH_REAL`. A mixed
 program can use both.
 
-CLI `--set throttle=N` overrides `@OPTION THROTTLE N`.
+### Memory regions
+
+Memory regions are target data. They describe their address ranges,
+supported uses, loading method, and limitations. A region may also
+require a startup action, such as banking out ROM before the program
+touches that RAM. For flat memory targets, direct regions only raise the
+usable top when they connect to normal RAM without crossing a reserved
+range.
+
+Run `crustybasic target-info <system>` for the authoritative list of
+memory regions available to that system. The command reads the target
+manifest directly and shows each region's ranges, uses, loading method,
+whether it is enabled automatically, required actions, and limitations.
+
+The loading methods are `direct` when output bytes load at their final
+address, `relocate` when startup copies initialized bytes into the
+region, and `runtime` for uninitialized storage. Listed actions run
+automatically. Listed disabled facilities cannot be used with that
+region.
+
+Enabling a region adds its address ranges to the memory the compiler may
+use. The compiler decides what code or data to place there according to
+the region's supported uses and loading method. Enabling a region does
+not assign a particular variable or PROC to it.
+
+Enable a region in source with:
+
+```basic
+@OPTION MEMORY_REGION name
+```
+
+Or enable it in the program's config file:
+
+```toml
+memory-regions = ["name"]
+```
+
+Repeat `@OPTION MEMORY_REGION` or add more names to the config array to
+enable multiple regions. Regions shown as enabled automatically need no
+option or config entry.
 
 ## Dialects
 
@@ -1169,7 +1416,7 @@ values, explicit `REAL` declarations, and REAL math stay `REAL`.
 ```
 
 ```bash
-crustybasic compile program.bas --set dialect=cbm_basic_v2 -o /tmp/program.s
+crustybasic compile <program.bas> --set dialect=cbm_basic_v2 -o /tmp/program.s
 ```
 
 ```toml
@@ -1181,42 +1428,54 @@ Available dialects:
 | Dialect | Use for |
 | --- | --- |
 | `crustybasic` | Native CrustyBASIC source. (the default so not needed) |
-| `applesoft_basic` | Applesoft BASIC listings. |
-| `integer_basic` | Apple Integer BASIC listings. |
-| `atari_basic` | Atari BASIC listings. |
-| `basic_xl` | BASIC XL listings. |
-| `cbm_basic_v2` | Commodore BASIC V2 listings. |
+| `applesoft_basic` | Applesoft BASIC listings for Apple II. |
+| `integer_basic` | Apple Integer BASIC listings for Apple II. |
+| `atari_basic` | Atari BASIC listings for Atari 8 bit systems. |
+| `basic_xl` | BASIC XL listings for Atari 8 bit systems. |
 | `cbm_basic_vic20` | Commodore BASIC V2 listings for VIC-20. |
+| `cbm_basic_v2` | Commodore BASIC V2 listings for C64. |
 | `cbm_basic_v3_5` | Commodore BASIC 3.5 listings for Plus/4. |
-| `cbm_basic_v7_0` | Commodore BASIC 7.0 listings. |
-| `color_basic` | TRS-80 Color BASIC listings. |
-| `extended_color_basic` | Extended Color BASIC listings. |
+| `cbm_basic_v7_0` | Commodore BASIC 7.0 listings for C128. |
+| `color_basic` | TRS-80 Color BASIC listings for CoCo. |
+| `extended_color_basic` | Extended Color BASIC listings for CoCo. |
+| `qbasic` | QBASIC style listings. Select a target or system explicitly. |
+| `gwbasic` | GW-BASIC listings for 16 bit DOS. |
+
+Many compatibility dialects are partial and target scoped. See the
+matching target page for current limits.
 
 ## Source Rewrites
 
-`@REWRITE` lets you map one spelling to another before the program is
-checked.
+`@REWRITE` lets you map one spelling to another before the program is checked.
 
 `@REWRITE_EXPR OLD = NEW` rewrites expression fragments inside statements, such as translating `{l:atom}^{r:atom}` to `POW({l}, {r})`.
 
+Call shaped rewrite rules without parentheses also accept source calls with
+parentheses. For example, `@REWRITE_EXPR DISPLAY CELL = FAST_DISPLAY`
+matches both `DISPLAY CELL` and `DISPLAY(CELL)`.
+
 Add your own preferred syntax by putting `@REWRITE OLD = NEW`
 lines in a `.cbi` file and listing that file in `crustybasic.config.toml`
-with `include` to pick it up automatically.
+with `include` to pick it up automatically or @INCLUDE'ing it in your source.
 
 Targets may also publish source rewrite files through their manifest.
 These target vocabulary aliases are available in native CrustyBASIC
-source for that target only. They keep the target-prefixed runtime API
-as the internal form while accepting familiar platform spellings in
-source.
+source for that target only. e.g. `FAST` and `SLOW` for the C128.
 
 ## Mappers
 
-Default mappers:
+Cart outputs and default mappers:
 
-| Target          | Default        | Banked option      |
-| --------------- | ----------     | -------------      |
-| `nes`           | `nrom`         | `uxrom` / `mmc1` / `mmc3` |
-| `atari800` cart | `standard`     | `xegs32`           |
-| `atari2600`     | (default 4 KB) | `f8` / `f6` / `f4` |
-| `c64` cart      | `standard`     | `supergames`       |
-| `coco` cart     | `standard`     | `banked_16k`       |
+Only cart outputs can use `@OPTION MAPPER`. `none` means the output is a
+fixed or linear cart layout with no mapper selection.
+
+| System(s) | Cart output(s) | Default mapper | Other mapper options |
+| --- | --- | --- | --- |
+| `atari2600.orig` | `cart` `.a26` | `standard` | `f8` / `f6` / `f4` |
+| `atari5200.orig` | `cart-32k` `.a52` | none | none |
+| `atari800.orig` / `atari800.xl` / `atari800.xe` / `atari800.xegs` | `cart` `.car` | `standard` | `xegs32` |
+| `c64.orig` / `c64.c64c` / `c64.ultimate` | `cart` `.crt`, `cart-easy-flash` `.crt` | `standard`; `easyflash` for `cart-easy-flash` | `supergames` / `easyflash` |
+| `c128.orig` | `cart` `.bin` | none | none |
+| `coco.1` / `coco.ecb` / `coco.3` | `cart` `.ccc` | `standard` | `banked_16k` |
+| `nes.orig` | `cart` `.nes` | `nrom` | `uxrom` / `mmc1` / `mmc3` |
+| `vic20.orig` / `vic20.3k` / `vic20.8k` / `vic20.16k` / `vic20.24k` | `cart` `.a0` | none | none |

@@ -3,9 +3,9 @@
 Use `@OPTION TARGET vic20` for the unexpanded VIC-20 profile, or
 pick an exact memory expansion with `@OPTION SYSTEM`.
 
-For portable calls such as `CLS`, `POSITION`, `BEEP`, `SOUND`, `JOY`,
-`JOY_BUTTON`, `PADDLE`, `CELL_*`, and `SPRITE_*`, see
-[`../API.md`](../API.md). For the `cbm_basic_vic20` dialect, see
+Portable runtime calls are documented in [`../API.md`](../API.md).
+This page covers VIC-20 systems, modes, formats, and hardware notes. For
+the `cbm_basic_vic20` dialect, see
 [`../USAGE.md#dialects`](../USAGE.md#dialects).
 
 ## Systems
@@ -19,7 +19,7 @@ For portable calls such as `CLS`, `POSITION`, `BEEP`, `SOUND`, `JOY`,
 | `vic20.24k` | `.prg` | 24K expansion. |
 
 All systems use the resident KERNAL and BASIC V2 ROMs. `REAL` is
-available through the BASIC ROM.
+available through the BASIC ROM. Strings encode to PETSCII.
 
 ## Memory And Screen
 
@@ -42,7 +42,7 @@ directly - `vic20_basic` ($1001), `vic20_basic_3k` ($0401), or
 without switching systems. For a fully custom loader, write a
 `@STARTUP` block (see LANGUAGE.md).
 
-`VIC20_SCREEN_BASE` and `VIC20_COLOR_BASE` follow the active system, so
+`SCREEN_BASE` and `COLOR_BASE` follow the active system, so
 programs can use them instead of hard-coded screen addresses.
 
 ## VIC-I
@@ -71,9 +71,8 @@ VIC.SOUND3 = $E0
 ## Colors
 
 The VIC-I palette has 16 colors, but normal text cell foreground color
-only has eight choices. `CELL_COLOR`, `TILE_COLOR`, `SPRITE_COLOR`, and
-other portable cell drawing calls use normal foreground color, so they
-mask through `CELL_FOREGROUND_COLOR_MASK` and keep values in `0..7`.
+only has eight choices. Cell, tile, and sprite foreground writes mask
+through `CELL_FOREGROUND_COLOR_MASK` and keep values in `0..7`.
 
 Some portable color names have no normal VIC-20 foreground equivalent.
 The target manifest maps those names to visible VIC-20 foreground
@@ -107,7 +106,7 @@ the hardware allows it:
 
 | Use | Range | How |
 | --- | --- | --- |
-| Cell foreground | `0..7` | `CELL_COLOR X, Y, C` or `POKEB VIC20_COLOR_BASE + Y * TEXT_WIDTH + X, C` |
+| Cell foreground | `0..7` | Cell color write or `POKEB COLOR_BASE + Y * TEXT_WIDTH + X, C` |
 | Cell multicolor flag | bit 3 | Write `8..15` to color RAM for that cell |
 | Background | `0..15` | High nibble of `VIC.COLOR` |
 | Border | `0..7` | Low bits of `VIC.COLOR` |
@@ -130,13 +129,27 @@ VIC.COLOR  = (BG * 16) + BORDER
 VIC.VOLUME = (AUX * 16) + (VIC.VOLUME & 15)
 
 ' set one cell to multicolor mode with red as its per cell foreground
-POKEB VIC20_COLOR_BASE + 5 * TEXT_WIDTH + 10, 8 + RED
+POKEB COLOR_BASE + 5 * TEXT_WIDTH + 10, 8 + RED
 ```
 
 ## Text And Cells
 
-The VIC-20 target focuses on the 22x23 character grid. The portable
-text and cell APIs work on every memory expansion.
+The VIC-20 target focuses on the 22x23 character grid. Text and cell
+runtime support works on every memory expansion. The default graphics
+mode is `CELL`.
+
+| Mode | VIC-20 mode | Size | Notes |
+| --- | --- | --- | --- |
+| `CELL` | text cell screen | 22x23 | default |
+| `BITMAP_HIRES` | not supported | | |
+| `BITMAP_LORES` | not supported | | |
+| `BITMAP_MULTICOLOR` | not supported | | |
+| `CELL_MULTICOLOR` | not supported | | |
+
+Use `VIC_TEXT` for the target native VIC-I text mode.
+
+Use text, cells, tiles, and sprites for the 22x23 character grid. The
+VIC-20 target does not provide bitmap display modes today.
 
 Strings encode to PETSCII. Common escapes:
 
@@ -151,34 +164,32 @@ Strings encode to PETSCII. Common escapes:
 | `{LEFT}`, `{RIGHT}`, `{UP}`, `{DOWN}` | Cursor controls |
 | `{RVS_ON}`, `{RVS_OFF}` | Reverse video controls |
 
-`CHARSET_INSTALL`, `CHARSET_DEFINE`, and `CHARSET_RESET` are available
-for custom 8-byte character glyphs.
+The VIC-20 target supports custom 8-byte character glyphs. See
+[`../API.md`](../API.md) for charset calls and constants.
+Cell backed `TILE_DEFINE` copies the default font once, selects the tile
+charset page, then writes defined glyphs into it.
+
+## Images
+
+VIC-20 images use `IMAGE_FMT_VIC_I_CELLS`: custom charset data plus
+the 22x23 screen and color matrices. The converter accepts indexed PNG
+and PCX sources; there is no native file format for this payload.
+KERNAL-backed runtime image loading is available.
 
 ## Files
 
-The portable `FILE_OPEN` defaults to disk device 8 and uses the logical
-channel as the secondary address. For example, channel 1 maps like
-`OPEN 1,8,1,"name,S,R"` for read mode.
-
-Use `FILE_OPEN_NATIVE` when a VIC-20-specific program needs another
-device or secondary address:
-
-```basic
-@OPTION TARGET vic20
-
-FILE_OPEN_NATIVE 1, "DATA,S,W", 9, 1
-FILE_WRITE_STR 1, "HELLO"
-FILE_CLOSE 1
-```
+File channels default to disk device 8 and use the logical channel as
+the secondary address. VIC-20-specific opens can choose another device
+or secondary address.
 
 The lower KERNAL channel helpers are also callable by target-specific
 programs: `OPEN_CH`, `CLOSE_CH`, `GET_CH`, `PUT_CH`, `PRINT_CH_STR`,
-`ST`, and `CMD_CH`. These are not portable API names.
+`ST`, and `CMD_CH`.
 
 ## Sprites
 
-The VIC-20 has no hardware sprites. The portable `SPRITE_*` API is a
-four-slot character-cell sprite layer.
+The VIC-20 has no hardware sprites. Sprites use a four-slot
+character-cell layer.
 
 | Feature | Value |
 | --- | --- |
@@ -188,30 +199,40 @@ four-slot character-cell sprite layer.
 | Data | One screen character, or one custom 8x8 glyph |
 | Collision | Not hardware backed |
 
-`SPRITE_DATA_8X8 ID, ADDR` installs an 8-byte custom glyph for one
-sprite slot. Call `VIC20_SPRITE_CHARSET_INSTALL ADDR` first only if
-you need to choose a specific 1K-aligned character RAM page.
+An 8-byte custom glyph can be installed for one sprite slot. Call
+`SPRITE_CHARSET_INSTALL ADDR` first only if you need to choose a
+specific 1K-aligned character RAM page. It copies the default font,
+selects that page, then sprite data replaces only its own glyph slots.
 
 ## Input
 
 | Capability | Value |
 | --- | --- |
 | Keyboard | Yes |
+| Individual held keys | Yes |
 | Joystick ports | 1 |
-| Buttons | 1 |
+| Buttons | 1 per port |
+| Stick type | Digital |
 | Paddle axes | 2 |
+| Keypad ports | 0 |
+| Keypad `INPUT` | No |
 | Mouse buttons | 0 |
 
-`JOY(0)` reads the single joystick port. Other ports return
-`JOY_NONE`. `JOY_BUTTON(0, 0)` reads the fire button.
+The single joystick port maps to port 0. Other ports read as neutral.
+Paddle axes 0 and 1 read `VIC.POT_X` and `VIC.POT_Y`; trigger reads
+always return released because there is no separate paddle trigger line.
 
-`PADDLE(0)` reads `VIC.POT_X` and `PADDLE(1)` reads `VIC.POT_Y`.
-`PTRIG` always returns released because there is no separate paddle
-trigger line.
+`KEY_HELD` polls the keyboard matrix without consuming typed input.
+
+## Timing
+
+The runtime tick source is the KERNAL jiffy clock. It runs at about
+60 Hz on PAL and NTSC because the KERNAL calibrates the VIA timer by
+video standard. The 24-hour wrap is compensated for one crossing.
 
 ## Sound
 
-`SOUND VOICE, FREQ, WAVEFORM, VOLUME` maps to VIC-I sound:
+Sound maps voices to VIC-I registers:
 
 | Voice | Register |
 | --- | --- |
@@ -220,8 +241,8 @@ trigger line.
 | `2` | `VIC.SOUND1`, bass |
 | `3` | `VIC.NOISE` |
 
-`FREQ` is the 7-bit VIC-I pitch value. `WAVEFORM` is ignored because
-the voices have fixed shapes. `BEEP(DURATION)` uses the soprano voice.
+The pitch value is the 7-bit VIC-I value. Waveform selection is ignored
+because the voices have fixed shapes. The bell uses the soprano voice.
 
 ## Dialect
 

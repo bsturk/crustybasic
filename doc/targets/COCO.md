@@ -3,10 +3,10 @@
 Use `@OPTION TARGET coco` for the default Extended Color BASIC
 profile, or pick an exact system with `@OPTION SYSTEM`.
 
-For portable calls such as `CLS`, `POSITION`, `BEEP`, `SOUND`, `JOY`,
-`JOY_BUTTON`, `PADDLE`, `PLOT`, `LINE`, and `SPRITE_*`, see
-[`../API.md`](../API.md). For command-line target selection and
-dialects, see [`../USAGE.md`](../USAGE.md).
+Portable runtime calls are documented in [`../API.md`](../API.md).
+This page covers CoCo systems, modes, formats, and hardware notes. For
+command-line target selection and dialects, see
+[`../USAGE.md`](../USAGE.md).
 
 ## Systems
 
@@ -15,9 +15,9 @@ dialects, see [`../USAGE.md`](../USAGE.md).
 | `coco.1` | `.bin` | Color BASIC only. |
 | `coco.ecb` | `.bin` | Default. Extended Color BASIC. |
 | `coco.3` | `.bin` | CoCo 3 with Super Extended Color BASIC. |
-| `coco.1.cart` | `.ccc` | Color BASIC Program Pak. |
-| `coco.ecb.cart` | `.ccc` | Extended Color BASIC Program Pak. |
-| `coco.3.cart` | `.ccc` | CoCo 3 Program Pak. |
+
+Program Pak `.ccc` output is selected with `OUTPUT_TYPE cart` on the
+same systems.
 
 The CoCo target uses the Motorola 6809. It is the only non-6502 target
 currently shipped with crustyBASIC.
@@ -31,6 +31,7 @@ currently shipped with crustyBASIC.
 | Code start | `$0E00` for `.bin`, `$C000` for cart |
 | Program RAM top | `$6000` |
 | Text screen | `$0400` |
+| String encoding | Color BASIC ROM text |
 | Input | Keyboard, 2 analog joystick ports |
 | Sound | 6-bit DAC through Color BASIC routines |
 
@@ -39,27 +40,39 @@ the machine setup.
 
 ## Graphics
 
-The portable graphics API uses PMODE 4-style hi-res graphics. Color
-BASIC semigraphics are also available.
+CoCo graphics use PMODE 4-style hi-res graphics. Color BASIC
+semigraphics are also available. The CoCo has no hardware sprites;
+sprite calls use a one-sprite 8x8 hi-res blitter.
 
-Useful calls:
+The default graphics mode is `BITMAP_MULTICOLOR`.
 
-| Call | Purpose |
-| --- | --- |
-| `DISPLAY mode` | Select text or bitmap graphics. |
-| `GFX_COLOR fg, bg` | Set drawing colors. |
-| `PLOT x, y`, `UNPLOT x, y` | Draw or clear pixels. |
-| `LINE x0, y0, x1, y1` | Draw a line. |
-| `SET x, y, color` | Color BASIC semigraphics dot. |
-| `RESET x, y` | Clear a semigraphics dot. |
+| Mode | CoCo mode | Size | Colors |
+| --- | --- | --- | --- |
+| `CELL` | VDG alphanumeric text | 32x16 | text |
+| `BITMAP_HIRES` | PMODE 4 bitmap | 256x192 | 2 |
+| `BITMAP_LORES` | not supported | | |
+| `BITMAP_MULTICOLOR` | semigraphics 4 | 64x32 | 8 |
+| `CELL_MULTICOLOR` | not supported | | |
 
-The CoCo has no hardware sprites. `SPRITE_*` is a one-sprite 8x8
-hi-res blitter.
+`GFX_PLOT_COLOR_AVAILABLE` is `TRUE` in semigraphics modes and `FALSE` in
+PMODE 4. PMODE 4 uses one shared hardware colorset, so three-argument
+`PLOT` falls back to the current foreground pixel.
+
+The bitmap TILE backend defaults to `BITMAP_HIRES`, so
+`TILE_COLOR_AVAILABLE` is `FALSE` after `DISPLAY TILE_DEFAULT_DISPLAY_MODE`.
+It becomes `TRUE` after `DISPLAY BITMAP_MULTICOLOR`.
+
+## Images
+
+Native image display supports `IMAGE_FMT_COCO_PM4` for 6144-byte PMODE
+4 screens. The converter accepts raw PMODE 4 dumps and DECB `.BIN` or
+`.MAX` files. The descriptor aux byte's bit 0 selects the VDG colorset.
+Disk BASIC-backed runtime image loading is available.
 
 ## CoCo 3 GIME
 
 `coco.3` exposes the `GIME` namespace for direct register access.
-Portable CoCo 3-specific graphics modes are still pending, so use
+CoCo 3-specific shared graphics modes are still pending, so use
 `GIME.*` only when you are intentionally writing CoCo 3 hardware code.
 
 Common names include `GIME.INIT0`, `GIME.INIT1`, `GIME.IRQENR`,
@@ -71,55 +84,50 @@ Common names include `GIME.INIT0`, `GIME.INIT1`, `GIME.IRQENR`,
 | Capability | Value |
 | --- | --- |
 | Keyboard | Yes |
+| Individual held keys | Yes |
 | Joystick ports | 2 |
-| Buttons | 1 |
-| Analog joystick | Yes |
+| Buttons | 1 per port |
+| Stick type | Analog |
 | Paddle axes | 4 |
+| Keypad ports | 0 |
+| Keypad `INPUT` | No |
+| Mouse buttons | 0 |
 
-`PADDLE(AXIS)` reads the raw 0..63 analog value. `JOY(PORT)` converts
-the analog stick to a digital direction mask. `JOY_BUTTON(PORT, 0)` reads
-the joystick button.
+Paddle reads return the raw 0..63 analog value. Joystick reads convert
+the analog stick to a digital direction mask.
+
+`KEY_HELD` polls the keyboard matrix without consuming typed input.
+
+## Timing
+
+The runtime tick source is Color BASIC `TIMER` at `$0112`. It is a
+16-bit 60 Hz counter, so it wraps about every 18 minutes. Cassette and
+sound mask the IRQ and pause it; cartridge builds may not have the
+BASIC IRQ running.
 
 ## Sound
 
-`BEEP(DURATION)` toggles the DAC directly. The portable
-`SOUND VOICE, FREQ, WAVEFORM, VOLUME` shape is also available through
-the sound API.
+The bell toggles the DAC directly. Sound uses the same 6-bit DAC path.
 
 ## Files
 
 The CoCo provider uses Disk BASIC ROM calls. It assumes a disk
 controller and Disk BASIC are present at runtime.
 
-Portable `FILE_OPEN` supports sequential `FILE_MODE_READ` and
-`FILE_MODE_WRITE`. `FILE_MODE_APPEND`, `FILE_MODE_UPDATE`, and
-`FILE_MODE_DIR` are not portable on CoCo and set `FILE_UNSUPPORTED`.
-
-```basic
-@OPTION TARGET coco
-
-FILE_OPEN 1, "DATA/TXT", FILE_MODE_WRITE
-FILE_WRITE_STR 1, "HELLO"
-FILE_WRITE_BYTE 1, 13
-FILE_CLOSE 1
-```
-
-Use `FILE_OPEN_NATIVE` for CoCo-specific mode and drive control:
-
-```basic
-FILE_OPEN_NATIVE 1, "DATA/TXT:1", COCO_FILE_MODE_OUTPUT, 1
-```
+Sequential read and write are supported. Append, update, and directory
+modes report unsupported. CoCo-specific opens can pass the Disk BASIC
+mode and drive number directly.
 
 `AUX1` is the Disk BASIC mode byte:
-`COCO_FILE_MODE_INPUT`, `COCO_FILE_MODE_OUTPUT`, or
-`COCO_FILE_MODE_DIRECT`. `AUX2` is the default drive number. File names
+`DISK_FILE_MODE_INPUT`, `DISK_FILE_MODE_OUTPUT`, or
+`DISK_FILE_MODE_DIRECT`. `AUX2` is the default drive number. File names
 use the Disk BASIC `NAME/EXT:DRIVE` shape; the explicit drive in the
 path overrides `AUX2`.
 
-Target-specific helpers are also callable: `COCO_DISK_OPEN`,
-`COCO_DISK_CLOSE`, `COCO_DISK_READ_BYTE`, `COCO_DISK_WRITE_BYTE`,
-`COCO_DISK_SET_NAME`, and `COCO_DISK_ENSURE`. These are not portable API
-names. Direct files still require Disk BASIC random-record discipline.
+Target-specific helpers are also callable: `DISK_OPEN`,
+`DISK_CLOSE`, `DISK_READ_BYTE`, `DISK_WRITE_BYTE`,
+`DISK_SET_NAME`, and `DISK_ENSURE`. Direct files still
+require Disk BASIC random-record discipline.
 
 ## REAL
 
@@ -155,21 +163,30 @@ Strings use Color BASIC text conventions.
 
 ## Cartridges
 
-Use an exact cartridge system:
+Select Program Pak output with `OUTPUT_TYPE cart`:
 
 ```basic
-@OPTION SYSTEM coco.ecb.cart
+@OPTION SYSTEM coco.ecb
+@OPTION OUTPUT_TYPE cart
 ```
 
 Default Program Pak output is 8K/16K. For larger cartridges:
 
 ```basic
-@OPTION SYSTEM coco.ecb.cart
+@OPTION SYSTEM coco.ecb
+@OPTION OUTPUT_TYPE cart
 @OPTION MAPPER banked_16k
 ```
 
 `banked_16k` provides a fixed 8K area plus switched 8K banks. See
 [`../USAGE.md#banked-builds`](../USAGE.md#banked-builds) for `@BANK`.
+
+## Assembler
+
+CoCo builds use `vasm6809_oldstyle` through `vasm`. Release bundles do
+not include the assembler binary. Place it at
+`tools/assemblers/vasm/<platform>/vasm6809_oldstyle` beside the compiler,
+using the `.exe` suffix on Windows, or pass its path with `--assembler`.
 
 ## Dialects
 

@@ -25,27 +25,33 @@
 # crustyBASIC
 
 CrustyBASIC is a Rust-based BASIC cross-compiler for 80s era
-computers and consoles. It compiles BASIC source into native machine code.
+computers and consoles. It compiles BASIC source into native machine code
+to run faster.  It is available for Windows, MacOS, and Linux.
 
 **Currently supported targets:**
 
-- Apple ][
+- Apple
+    - ][+, //c, //e
 - Atari
-  - 800
+  - 400/800/XL/XE
   - 5200
   - 2600
 - Commodore
-  - 64
+  - 64/64u
+  - 128
   - Plus/4
   - VIC-20
-- Tandy/RS
-  - Color Computers 1/2/3
-- MS-DOS 16-bit
-- NES
+- Tandy/Radio Shack
+  - Coco 1,2,3
+- PC
+    - MS-DOS 16-bit
+    - Windows 64 bit GDI and console (Win XP...Win 11)
+- Nintendo
+  - NES
 
 ## Downloading the Compiler
 
-To download the latest compiled binaries for Windows, macOS, or Linux, please visit the **[Releases Section](https://github.com/bsturk/crustybasic/releases)**.
+To download the latest compiled binaries, visit the **[Releases Section](https://github.com/bsturk/crustybasic/releases)**.
 
 ## Quick Start
 
@@ -65,8 +71,8 @@ Compile it to assembly:
 crustybasic compile hello.cbs -o hello.s
 ```
 
-Build a runnable C64 `.prg` in one shot. This needs a compatible assembler
-(like `vasm`); see [USAGE.md#assemblers](doc/USAGE.md#assemblers).
+Build a runnable C64 `.prg` in one shot. This requires an assembler
+to be staged (in this case `vasm`); see [USAGE.md#assemblers](doc/USAGE.md#assemblers).
 
 ```bash
 crustybasic build hello.cbs -o hello.prg
@@ -74,15 +80,15 @@ crustybasic build hello.cbs -o hello.prg
 
 ## Screenshots
 
-Screenshots and emulator captures live in [screenshots](./screenshots).
+Screenshots and emulator pics are in [screenshots](./screenshots).
 
 ## Submitting Bugs
 
-Please submit bug reports through the GitHub Issues tab.
+Please submit bug reports through the GitHub Issues tab above.
 Include the CrustyBASIC version, your operating system, the target or system you
 are building for, the command you ran, and any compiler or assembler output.
 
-Small self-contained `.cbs` files are the easiest reports to reproduce.
+Small self-contained `.cbs` files are the easiest reports for me to reproduce.
 
 ## Learn more
 
