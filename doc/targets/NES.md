@@ -185,37 +185,27 @@ runtime with tile, sprite, or `CHR_UPLOAD`.
 To build a cart with CHR ROM, pass a CHR file:
 
 ```bash
-crustybasic build <input.cbs> --set target=nes --set chr-rom=tiles.chr -o /tmp/program.nes
+crustybasic build <input.cbs> --set target=nes --set nes-chr-rom=tiles.chr -o /tmp/program.nes
 ```
 
 Source can also declare the same build input:
 
 ```basic
-@OPTION CHR_ROM "tiles.chr"
+@OPTION NES_CHR_ROM "tiles.chr"
 ```
 
 CHR ROM builds package those bytes into the iNES file and skip runtime
 pattern-table uploads. Text, tiles, sprites, and native images must use
 tile data already present in the supplied CHR file.
+`NES_CHR_ROM` supplies the complete CHR image. It may contain multiple
+8K CHR units; the cartridge wrapper pads the final unit when needed.
 
-Use `@BANK PRG N` for switched-bank code and `DATA`. `MAIN` stays in the
+Use `@BANK N` for switched-bank code and `DATA`. `MAIN` stays in the
 fixed bank. UxROM, MMC1, and MMC3 share the same `@BANK` behavior. Calls
 between switched banks route through the fixed bank automatically.
-With MMC3, `@BANK PRG` uses the `$8000-$9FFF` 8K PRG window; the fixed
+With MMC3, `@BANK` uses the `$8000-$9FFF` 8K PRG window; the fixed
 reset/vector bank lives at `$E000-$FFFF`. MMC3 IRQ and CHR banking
 register selection helpers are not exposed yet.
-
-MMC3 also supports source-declared CHR ROM bank placement:
-
-```basic
-@OPTION TARGET nes
-@OPTION MAPPER mmc3
-@BANK CHR 0 "tiles.chr"
-```
-
-Each `@BANK CHR N "path"` file is placed into the 8K CHR ROM bank `N`.
-Relative paths are resolved from the source file. Undeclared CHR banks
-are filled with `$FF`.
 
 Constant `POKE` statements into a banked mapper's cartridge PRG window
 are rejected because that address range is mapper space, not writable

@@ -102,7 +102,7 @@ CONST SHIP(7) AS U8 = %
 END%
 
 PROC MAIN
-	SPRITES_BEGIN
+	SPRITES_ON
 	SPRITE_DATA_8X8 0, ADDR SHIP
 	SPRITE_COLOR 0, YELLOW
 	SPRITE_MOVE 0, 40, 80
@@ -117,7 +117,7 @@ ENDPROC
 
 | Call | Purpose |
 | --- | --- |
-| `SPRITES_BEGIN` | Call `SPRITES_RESET` and begin with hidden sprites |
+| `SPRITES_ON` | Call `SPRITES_RESET` and begin with hidden sprites |
 | `SPRITE_DATA_8X8 ID, ADDR` | Set an eight-byte shape |
 | `SPRITE_MOVE ID, X, Y` | Set pixel position |
 | `SPRITE_COLOR ID, C` | Set sprite color |
@@ -174,8 +174,9 @@ TILE is a binary playfield surface on Atari 2600:
   are supported
 - Tile definitions, tile blocks, and per-tile colors are not supported
 
-The related capability values are `TILE_DEFINE_AVAILABLE = 0` and
-`TILE_BLOCK_AVAILABLE = 0`. `TILE_COLOR_AVAILABLE` remains 0 on this
+The related capability values are `TILE_CUSTOM_SHAPE_SUPPORTED = FALSE`,
+`TILE_CUSTOM_SHAPE_DYNAMIC_SUPPORTED = FALSE`, and
+`TILE_BLOCK_SUPPORTED = FALSE`. `TILE_COLOR_AVAILABLE` remains FALSE on this
 tile surface.
 
 `A2600_PLAYFIELD_LAYOUT` controls the right half:
@@ -196,8 +197,8 @@ row. Use it when moving a row between frames.
 As an example, for 8x8 logical tiles, group two playfield cells into each TILE:
 
 ```basic
-@OPTION TILE_FIXED_CELL_W 2
-@OPTION TILE_FIXED_CELL_H 1
+@OPTION TILE_FIXED_SPAN_W 2
+@OPTION TILE_FIXED_SPAN_H 1
 
 TILE_BEGIN 2, 1
 ```
@@ -214,8 +215,8 @@ playfield options:
 @OPTION A2600_PLAYFIELD_COLUMNS 40
 @OPTION A2600_PLAYFIELD_ROWS 24
 @OPTION A2600_SPRITE_COUNT 0
-@OPTION TILE_FIXED_CELL_W 2
-@OPTION TILE_FIXED_CELL_H 1
+@OPTION TILE_FIXED_SPAN_W 2
+@OPTION TILE_FIXED_SPAN_H 1
 
 TILE_BEGIN 2, 1
 ```
@@ -372,7 +373,7 @@ Images use row playfield mode. Rows and columns beyond the configured
 grid are clipped. Image data is linked into the cartridge.
 
 The target has no general console text output, so `PRINT` is not a
-screen renderer and `TEXT_OUTPUT_AVAILABLE` remains false. It does have
+screen renderer and `TEXT_OUTPUT_SUPPORTED` remains false. It does have
 two narrow target renderers:
 
 - Playfield text draws 3x5 glyphs into the binary TILE surface
@@ -393,8 +394,8 @@ Use `A2600_FONT` and `A2600_SPRITE_FONT` only when the program needs
 custom fonts. `FONT`, `PLAYFIELD_FONT`, and `SPRITE_FONT` select fonts at
 runtime. Keep strings short: playfield text accepts
 `STRING * 5`, while sprite text accepts `STRING * 2`. Playfield text
-requires `TILE_AVAILABLE`. Sprite text requires `A2600_SPRITE_COUNT 2`.
-`TEXT_AVAILABLE` reports whether the selected renderer works with the
+requires `TILE_SUPPORTED`. Sprite text requires `A2600_SPRITE_COUNT 2`.
+`TEXT_SUPPORTED` reports whether the selected renderer works with the
 resolved display.
 
 Information row text is separate from these renderers. Select it with
@@ -420,7 +421,7 @@ target's 8-bit frame count and wraps every 256 drawn frames.
 `TICKS_HZ` is 60; `TICKS` advances only when frames are drawn and also
 wraps every 256 frames.
 
-There is no frame callback or VBI hook. `FRAME_INSTALL_AVAILABLE` is
+There is no frame callback or VBI hook. `FRAME_INSTALL_SUPPORTED` is
 false. The built-in display kernels currently use NTSC timing: 3 VSYNC,
 37 VBLANK, 192 visible, and 30 overscan scanlines. Each scanline has 76
 CPU cycles.
@@ -510,8 +511,8 @@ Information rows keep the fixed
 
 Resolved constants include `PLAYFIELD_LAYOUT`, `PLAYFIELD_COLUMNS`,
 `PLAYFIELD_ROWS`, `PLAYFIELD_ROW_SCANLINES`,
-`MISSILE0_AVAILABLE`, `MISSILE1_AVAILABLE`, `MISSILES_ENABLED`,
-`BALL_AVAILABLE`, `BALL_ENABLED`, `COLLISIONS_ENABLED`, and the portable
+`MISSILE0_SUPPORTED`, `MISSILE1_SUPPORTED`, `MISSILES_ENABLED`,
+`BALL_SUPPORTED`, `BALL_ENABLED`, `COLLISIONS_ENABLED`, and the portable
 capability constants. Use those values in `@IF` blocks when a source
 needs to adapt to the chosen features. The `A2600_MISSILES`,
 `A2600_BALL`, and `A2600_COLLISIONS` options request features; the
@@ -539,7 +540,7 @@ Extra color names are `BRIGHT_ORANGE`, `DARK_BLUE`, `DARK_ORANGE`,
 Missiles, the ball, row colors, row heights, information rows, timed
 paddles, and collisions are target specific features. Use
 `MISSILES_ENABLED`, `BALL_ENABLED`, and `COLLISIONS_ENABLED` for resolved
-overall availability. `MISSILE0_AVAILABLE` and `MISSILE1_AVAILABLE`
+overall availability. `MISSILE0_SUPPORTED` and `MISSILE1_SUPPORTED`
 describe the individual missile objects.
 
 Read collision helpers after a frame, then call `COLLISION_CLEAR` before
@@ -573,55 +574,55 @@ are drawn.
 
 ## Sound
 
-`SOUND_AVAILABLE` is `1` and `SOUND_VOICES` is `2`.
-`SOUND_HAS_SHAPE`, `SOUND_HAS_NOISE`, and `SOUND_HAS_NATIVE` are `1`;
-`SOUND_HAS_ENVELOPE`, `SOUND_HAS_FILTER`, and `SOUND_HAS_PULSEWIDTH`
-are `0`.
+`SOUND_SUPPORTED` is `TRUE` and `SOUND_VOICES` is `2`.
+`SOUND_SHAPE_SUPPORTED` and `SOUND_NOISE_SUPPORTED` are `TRUE`.
 `SOUND_VOLUME_MODEL` is `SOUND_VOLUME_MODEL_VOICE`, and
 `SOUND_VOLUME_MAX` is `15`.
 
-`SOUND` is the immediate, target specific interface:
+Exact TIA sound control uses the chip interface:
 
 ```basic
-SOUND CHAN, FREQ, CTRL, VOL
+TIA.SOUND CHAN, AUDF, AUDC, VOLUME
 ```
 
 | Argument | Atari 2600 meaning |
 | --- | --- |
 | `CHAN` | TIA voice `0` or `1` |
-| `FREQ` | Native `AUDF` divider `0..31` |
-| `CTRL` | Native `AUDC` control `0..15` |
-| `VOL` | Voice volume `0..15` |
+| `AUDF` | Native divider `0..31` |
+| `AUDC` | Native control `0..15` |
+| `VOLUME` | Native volume `0..15` |
 
-The call returns immediately and the voice keeps playing until another
-`SOUND` call changes it, `SOUND_OFF CHAN` stops it, or
-`SOUND_ALL_OFF`/`SILENCE` stops both voices. `SOUND_RAW` performs the
-same operation as `SOUND`.
+For example, this starts a tone on voice 0:
+
+```basic
+TIA.SOUND 0, 12, 4, 8
+```
+
+The call writes `AUDC`, `AUDF`, and `AUDV` directly and returns. The
+voice keeps playing until another `TIA.SOUND` call changes it,
+`SOUND_OFF CHAN` stops it, or `SOUND_ALL_OFF` or `SILENCE` stops both
+voices.
 
 The portable shape constants map to TIA control values:
 `SOUND_SHAPE_DEFAULT`, `SOUND_SHAPE_TONE`, `SOUND_SHAPE_TRIANGLE`, and
 `SOUND_SHAPE_SAW` are `4`; `SOUND_SHAPE_PULSE` is `12`; and
 `SOUND_SHAPE_NOISE` is `8`.
 
-`SOUND_FREQ(NOTE)` returns a packed Atari value with `AUDC` in the high
-byte and `AUDF` in the low byte. When this packed value is passed as
-`FREQ`, its high byte overrides the `CTRL` argument. Portable note
-playback covers `NOTE_C4` through `NOTE_B6`; unsupported notes return
-zero and the portable note calls silence the selected voice.
+Portable note playback covers `NOTE_C4` through `NOTE_B6`. `PLAY_NOTE`
+uses the paired TIA pitch and control table. `PLAY_NOTE_SHAPE` uses the
+requested control with the closest available pitch. Exact effects use
+`TIA.SOUND`.
 
-`PLAY_NOTE` starts a note and leaves it playing. `PLAY_NOTE_FOR` blocks,
-converts its duration to drawn frames using `DURATION \ 100`, and then
-stops the voice. Because the packed note value supplies `AUDC`,
-`PLAY_NOTE_SHAPE` currently uses the note table's control rather than
-the requested shape. Use `SOUND` when an exact TIA control is required.
+`PLAY_NOTE_FOR` and `PLAY_NOTE_SHAPE_FOR` block, convert their duration
+to drawn frames using `DURATION \ 100`, and then stop the voice.
 
 `BEEP DURATION` uses voice `0`, divider `12`, control `4`, and volume
 `8`. It calls `FRAME_DELAY DURATION`, keeping a built in display active,
 and then stops voice `0`. Its duration is therefore measured directly
 in drawn frames, unlike `PLAY_NOTE_FOR`.
 
-Timed sound scheduling is unavailable: `SOUND_TIMED_AVAILABLE`,
-`SOUND_TIMED_FREE_RUNNING`, and `SOUND_TIMED_VOICES` are `0`. Timed
+Timed sound scheduling is unavailable: `SOUND_TIMED_SUPPORTED` and
+`SOUND_TIMED_FREE_RUNNING` are `FALSE`, and `SOUND_TIMED_VOICES` is `0`. Timed
 sound calls do nothing and their status queries return `0`.
 
 ## Cartridge Sizes
@@ -635,7 +636,7 @@ Default builds try 2K, then 4K. Larger banked cartridges use
 | `f6` | 16K | 4 |
 | `f4` | 32K | 8 |
 
-Use `@BANK PRG N` for code in a switched bank. See
+Use `@BANK N` for code in a switched bank. See
 [`../USAGE.md#banked-builds`](../USAGE.md#banked-builds).
 
 ## Not Supported

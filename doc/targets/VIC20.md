@@ -39,8 +39,8 @@ If `START_CODE` is not set, the machine code starts 15 bytes after
 `@OPTION STARTUP <name>` selects one of the BASIC loader stubs
 directly - `vic20_basic` ($1001), `vic20_basic_3k` ($0401), or
 `vic20_basic_8k` ($1201) - and moves the program/code start to match,
-without switching systems. For a fully custom loader, write a
-`@STARTUP` block (see LANGUAGE.md).
+without switching systems. For a fully custom loader, write an
+`ASM STARTUP` block (see LANGUAGE.md).
 
 `SCREEN_BASE` and `COLOR_BASE` follow the active system, so
 programs can use them instead of hard-coded screen addresses.
@@ -151,7 +151,12 @@ Use `VIC_TEXT` for the target native VIC-I text mode.
 Use text, cells, tiles, and sprites for the 22x23 character grid. The
 VIC-20 target does not provide bitmap display modes today.
 
-Strings encode to PETSCII. Common escapes:
+crustyBASIC strings use direct ASCII letter values. `A-Z` maps to
+`$41-$5A`, `a-z` maps to `$61-$7A`, and a newline maps to `$0D`.
+The displayed glyph still depends on the active Commodore character set.
+The CBM BASIC dialect uses VICE petcat listing conversion instead:
+`A-Z` maps to `$C1-$DA`, `a-z` maps to `$41-$5A`, and `~` maps to
+`$FF`. Use `{$NN}` for an exact PETSCII byte. Common escapes:
 
 | Escape | Byte |
 | --- | --- |
@@ -171,10 +176,62 @@ charset page, then writes defined glyphs into it.
 
 ## Images
 
-VIC-20 images use `IMAGE_FMT_VIC_I_CELLS`: custom charset data plus
-the 22x23 screen and color matrices. The converter accepts indexed PNG
-and PCX sources; there is no native file format for this payload.
-KERNAL-backed runtime image loading is available.
+| Format | Accepted files | Size |
+| --- | --- | --- |
+| `IMAGE_FMT_VIC_I_CELLS` | Indexed PNG and PCX converted to custom cells | 176x184 |
+| `IMAGE_FMT_VIC_I_FCBPAINT` | Native FCBPaint files | 168x192 |
+| `IMAGE_FMT_VIC_I_MINIPAINT` | Native MINIPAINT files | 160x192 |
+
+FCBPaint pictures use per-line color changes, so `cb-image` compiles those
+changes into the timed raster code used by the viewer. The result keeps the
+mixed hires and multicolor cells and all inline color splits. FCBPaint is PAL
+only.
+
+Convert an `.fcb` file to a streaming image before building the program:
+
+```text
+cb-image --target vic20 --img source.fcb -o TITLE.IMG
+```
+
+Load it from a 24K expansion with the program above the display memory:
+
+```basic
+@OPTION SYSTEM vic20.24k
+@OPTION START_CODE $5000
+@OPTION START_DATA $7000
+@INCLUDE "api/image.cbi"
+
+PROC MAIN
+	OK AS U8
+
+	OK = IMAGE_LOAD_DISPLAY("TITLE.IMG")
+ENDPROC
+```
+
+The FCBPaint viewer uses `$0000-$4FFF` and `$9400-$97FF`. Press Space to stop
+the viewer and return to the program. It restores low memory and the VIC and
+VIA settings, but leaves the picture data in display memory. Use a converted
+`.img` file; direct loading of the original `.fcb` file is not supported.
+Streaming is recommended because prepared FCBPaint images include their
+raster code and are usually too large to embed alongside the program.
+
+MINIPAINT files can be converted and embedded with `@INCLUDE_IMAGE`, or
+loaded directly with `IMAGE_LOAD_DISPLAY`. Direct loading recognizes the
+complete native file header and ignores its bundled viewer.
+
+MINIPAINT uses `$1000-$1FFF` for its screen and bitmap and `$9400-$94EF`
+for color RAM. Programs using it must place code and mutable data outside
+`$1000-$1FFF`. For example, an 8K expansion can use:
+
+```basic
+@OPTION SYSTEM vic20.8k
+@OPTION START_CODE $2200
+@OPTION START_DATA $3800
+```
+
+The program, runtime, and data must still fit the selected expansion.
+KERNAL-backed loading is available for converted `.img` files and native
+MINIPAINT files.
 
 ## Files
 

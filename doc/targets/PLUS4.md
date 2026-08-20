@@ -10,8 +10,12 @@ This page covers Plus/4 systems, modes, formats, and hardware notes.
 | ------ | --- | ------ | ---- | -------- | ----------------- |
 | `plus4.orig` | 6502 | `.prg` | 40x25 | yes | `vasm` |
 
-Strings encode to PETSCII. `REAL` uses the BASIC 3.5 ROM floating
-point routines.
+crustyBASIC strings use direct ASCII letter values. `A-Z` maps to
+`$41-$5A`, `a-z` maps to `$61-$7A`, and a newline maps to `$0D`.
+The CBM BASIC dialect uses VICE petcat listing conversion instead:
+`A-Z` maps to `$C1-$DA`, `a-z` maps to `$41-$5A`, and `~` maps to
+`$FF`. Use `{$NN}` for an exact PETSCII byte. `REAL` uses the BASIC
+3.5 ROM floating point routines.
 
 ## Graphics
 
@@ -33,8 +37,14 @@ record the native value in `GFX_MODE`.
 Bitmap modes use the bitmap at `$4000`, luma attributes at `$0800`,
 and chroma attributes at `$0C00`.
 
+`DISPLAY_MIXED mode, first_row, rows` puts full width text rows over a
+bitmap. The text rows use color memory at `$6000` and character memory at
+`$6400`, just above the bitmap, so leave that area free. Page flipped soft
+sprites use the same area and cannot be combined with mixed mode. A later
+`DISPLAY` call leaves it.
+
 `CELL_MULTICOLOR` uses the text screen at `$0C00` and color RAM at
-`$0800`. `CELL_COLOR fg, bg, color2, color3` sets the default
+`$0800`. `CELL_COLORS fg, bg, color2, color3` sets the default
 foreground, background, and two shared multicolor text colors. The
 per-cell `CELL_COLOR col, row, color` sets that cell's foreground color.
 The other three colors are shared across the screen.
@@ -62,7 +72,7 @@ treats `00` as transparent, `01` as `SPRITE_COLOR2`, `10` as the slot's
 `SPRITE_COLOR`, and `11` as `SPRITE_COLOR3`. `SPRITE_BG` sets the bitmap
 backdrop.
 
-`SPRITES_BEGIN` selects the matching bitmap mode. See
+`SPRITES_ON` selects the matching bitmap mode. See
 [`multicolor_sprite.cbs`](../../examples/plus4/crustybasic/multicolor_sprite.cbs).
 
 ## Input

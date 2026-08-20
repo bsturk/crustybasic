@@ -1,59 +1,66 @@
 # Usage
 
-For a quick intro see the [Quick Start](../README.md#quick-start).
+Start with the [Quick Start](../README.md#quick-start) if you just want
+to compile and run a small program.
 
-## Compile Or Build
+## Compile or build
 
-`compile` generates assembly text. Use it when you want to inspect
-the assembly instead of making a program.
-
-```bash
-crustybasic compile examples/c64/crustybasic/color_banner.cbs -o /tmp/color_banner.s
-```
-
-`build` runs the selected system's assembler and creates its runnable
-output.
+By default, crustyBASIC builds a program you can run:
 
 ```bash
-crustybasic build examples/c64/crustybasic/color_banner.cbs -o /tmp/color_banner.prg
+crustybasic examples/c64/crustybasic/color_banner.cbs -o color_banner.prg
 ```
 
-Without `-o`, both commands choose a path from the project output
-configuration and print each path they write. Sources under `examples/`
-use the artifact layout under `build/` by default.
+You can write `build` explicitly to do the same thing:
 
-## Building Examples
+```bash
+crustybasic build examples/c64/crustybasic/color_banner.cbs -o color_banner.prg
+```
 
-`build-examples` recursively finds `.bas` and `.cbs` files under
-`examples/`. A listing with no target selection is tried on one default
-system per target. Listings that select a target or system build only for
-compatible systems. Config and `@REQUIRES` can skip individual builds.
+`compile` writes an assembly file and stops there. Use it when you want
+to inspect the assembly written by crustyBASIC or run the assembler
+yourself.
+
+```bash
+crustybasic compile examples/c64/crustybasic/color_banner.cbs -o color_banner.s
+```
+
+If you leave out `-o`, crustyBASIC chooses the output path and prints
+every path it writes. Examples go under `build/` by default.
+
+## Building examples
+
+`build-examples` searches `examples/` and its subfolders for `.bas` and
+`.cbs` files. When an example does not choose a target, the command tries
+it on one default system for each target. When an example does choose a
+target or system, only compatible systems are used. Config settings and
+`@REQUIRES` can skip individual builds.
 
 ```bash
 crustybasic build-examples --set target=c64
 crustybasic build-examples:crustybasic --set target=c64
 ```
 
-The optional `:path-filter` builds only example files whose full path
-contains that text.
+Add `:path-filter` to build only examples whose full path contains that
+text.
 
-Listings can have requirements:
+An example can say what it needs:
 
 ```basic
-@REQUIRES SPRITE_KIND = SPRITE_KIND_HW @ELSE "hardware sprites are not supported"
+@REQUIRES SPRITE_KIND = SPRITE_KIND_HW @ELSE "the target's own sprites are required"
 ```
 
-`build-examples` skips an example with a warning when its requirement
-is false for the selected target. Use `--keep-going-requires` to ignore
-`@REQUIRES` and attempt the build. Add `--keep-going` if a failed build
-should not stop the run.
+If a requirement is false for the selected target, `build-examples`
+skips that example and prints a warning. Use `--keep-going-requires` to
+ignore `@REQUIRES` and try the build anyway. Add `--keep-going` if one
+failed build should not stop the rest.
 
 ## Commands
 
 ```text
-crustybasic compile <input.cbs> [-o output.s] [--include path] [--emit-ir] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
-crustybasic <input.cbs> [-o output.s] [--include path] [--emit-ir] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler path] [--cart-size N] [--size-report] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
 crustybasic build <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler path] [--cart-size N] [--size-report] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic compile <input.cbs> [-o output.s] [--include path] [--emit-ir] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
 crustybasic build-examples[:path-filter] [--examples-dir dir] [--output-dir dir] [--examples-asm-dir dir] [--assembler path] [--cart-size N] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--cart-include-variants] [--keep-going-requires] [--keep-going|-k] [--jobs N|-j N] [--set key=value]
 crustybasic detokenize <input> [-o output] [--from-tokenized=NAME] [--from-hex] [--set dialect=NAME]
 crustybasic targets
@@ -63,141 +70,161 @@ crustybasic <no arg>|help|-h|--help
 crustybasic version|-v|--version
 ```
 
-With no command, `crustybasic <input.cbs>` is the same as
-`crustybasic compile <input.cbs>`.
+You can leave out the `build` command. `crustybasic <input.cbs>` means
+the same thing as `crustybasic build <input.cbs>`.
 
-## File Extensions
+## File extensions
 
 | Extension | Meaning |
 | --- | --- |
-| `.cbs` | CrustyBASIC source |
+| `.cbs` | crustyBASIC source |
 | `.bas` | BASIC source, commonly used for compatibility listings |
-| `.cbi` | CrustyBASIC include |
-| `.cbf` | CrustyBASIC font |
+| `.cbi` | crustyBASIC include |
+| `.cbfont` | crustyBASIC font |
 
-## Command Line Flags
+## Command line flags
 
 | Flag | What it does |
 | --- | --- |
-| `-o`, `--output` | Output path. Assembly for `compile`, runnable program for `build`, text for `detokenize`. |
-| `--jobs N`, `-j N` | Number of parallel example builds. Defaults to available CPU parallelism. |
-| `--keep-going`, `-k` | Continue `build-examples` after failures and report them at the end. |
+| `-o`, `--output` | Choose the output path: assembly for `compile`, a runnable program for `build`, or text for `detokenize`. |
+| `--jobs N`, `-j N` | Run this many example builds at once. The default uses the available processor cores. |
+| `--keep-going`, `-k` | Keep building examples after a failure, then report all failures at the end. |
 | `--keep-going-requires` | Build examples even when their `@REQUIRES` check does not match. |
-| `--set key=value` | Override a compile option. |
-| `--emit-asm path` | Keep the assembly file alongside a `build`. |
-| `--size-report` | Show artifact sizes, memory region use, cart banks, and available section estimates after a successful `build`. Exact, estimated, and partial values are labeled. |
-| `--emit-ir` | Print an internal debug listing to stderr. |
-| `--debug` | Set `DEBUG` to 1 and enable `@ASSERT`. Without this flag, `DEBUG` is 0 and `@ASSERT` is ignored. |
-| `--show-warnings` | Print compiler warnings to stderr. Warnings are suppressed by default. |
-| `--assembler path` | Use a compatible executable for the selected system's assembler. |
-| `--include path` | Include a `.cbi` file before the source. Repeat for multiple files. They are included in the order specified from left to right. |
-| `--crustybasic-toml path` | Use this standalone project/tool config instead of the `crustybasic.toml` beside the compiler. |
-| `--from-tokenized=NAME` | Force a BASIC decoder for `detokenize`. |
-| `--from-hex` | Read `detokenize` input as an ASCII hex dump before decoding. |
-| `--output-dir dir` | Put `build-examples` program files directly in this directory instead of the configured artifact layout. |
-| `--examples-dir dir` | Example tree for `build-examples`. Defaults to `examples/`. |
-| `--examples-asm-dir dir` | Directory for assembly files from `build-examples`. |
-| `--cart-size N` | Choose an exact size for a cartridge without bank switching (`16k`, `32k`, `0x8000`, `$8000`, or decimal bytes). |
-| `--cart-include-variants` | For listings without a target selection, build every exact system variant instead of one representative per target. |
+| `--set key=value` | Set or replace a compile option. |
+| `--emit-asm path` | Keep the assembly file produced during a `build`. |
+| `--size-report` | After a successful `build`, show output sizes, memory use, cartridge banks, and estimated free space. Exact, estimated, and partial values are labeled. |
+| `--emit-ir` | Print a detailed listing for diagnosing compilation problems. |
+| `--timings` | Show how long compilation takes, split into its main steps. |
+| `--debug` | Set `DEBUG` to 1 and enable `@ASSERT`. Without it, `DEBUG` is 0 and `@ASSERT` is ignored. |
+| `--show-warnings` | Print crustyBASIC warnings. They are hidden by default. |
+| `--assembler path` | Use this assembler executable for the selected system. It must be compatible with that system. |
+| `--include path` | Include a `.cbi` file before the source. Repeat the flag for more files. Files are included from left to right. |
+| `--crustybasic-toml path` | Use a different `crustybasic.toml` tool config. |
+| `--from-tokenized=NAME` | Tell `detokenize` which tokenized BASIC format to read. |
+| `--from-hex` | Make `detokenize` read its input as an ASCII hex dump before decoding it. |
+| `--output-dir dir` | Put programs from `build-examples` directly in this folder instead of the usual output folders. |
+| `--examples-dir dir` | Search this example tree with `build-examples`. The default is `examples/`. |
+| `--examples-asm-dir dir` | Put assembly files from `build-examples` in this folder. |
+| `--cart-size N` | Set the exact size of a cartridge stored as one fixed area (`16k`, `32k`, `0x8000`, `$8000`, or decimal bytes). |
+| `--cart-include-variants` | For examples that do not choose a target, build every exact system variant instead of one system per target. |
+| `--out-dir dir` | Put regression output in this folder. |
+| `--bless` | Replace the expected messages for failing regression cases with their current messages. |
+| `--no-assemble` | Skip regression cases that need an assembler. |
 
-Run `crustybasic options` for the `--set` keys, or
-`crustybasic target-info <system>` for details about one system,
-including its usable memory regions.
+Run `crustybasic options` to see the `--set` keys. Run
+`crustybasic target-info <system>` to inspect one system, including its
+usable memory regions.
 
-## `--set` Options
+## Compile options
 
-These are the current command-line option keys:
+These options can be set from the command line with `--set key=value`:
 
 | Key | Values | What it does |
 | --- | --- | --- |
-| `target` | Any target shown by `crustybasic options` | Select a target family. |
-| `system` | Any exact system shown by `crustybasic options` | Select an exact system. |
-| `dialect` | Any dialect shown by `crustybasic options` | Select source compatibility rules. |
-| `rom` | Target specific ROM profile | Select which ROM services the program may use. |
+| `target` | Any target shown by `crustybasic options` | Choose a target family. |
+| `system` | Any exact system shown by `crustybasic options` | Choose an exact system. |
+| `dialect` | Any dialect shown by `crustybasic options` | Choose a set of source compatibility rules. |
+| `rom` | Target specific ROM name | Choose which ROM services the program can use. |
 | `mapper` | Target specific mapper name | Choose how cartridge storage is arranged. |
-| `output-type` | Target specific output name | Select the runnable format to build. |
-| `tile-backend` | `cell`, `native`, `bitmap`, `kernel` | Choose the TILE drawing backend. |
-| `optimize` | `default`, `speed`, `size` | Choose a general speed or size preference. |
-| `math-real` | `auto`, `target`, `builtin` | Choose where `REAL` math comes from. |
-| `builtin-real` | `auto`, `q16_16`, `q24_8` | Choose the compiler supplied `REAL` format. |
-| `math-integer` | `auto`, `target`, `builtin` | Choose where integer math comes from. |
-| `numeric-mode` | `integer`, `real`, `real_narrow`, `integer_only_warn`, `integer_only_error` | Choose the default numeric policy. |
-| `type-policy` | Any policy shown by `crustybasic options` | Choose identifier suffixes and implicit numeric types. |
+| `output-type` | Target specific output name | Choose the runnable format to build. |
+| `tile-backend` | `cell`, `hardware`, `bitmap`, `kernel` | Choose which kind of screen the TILE API uses. |
+| `optimize` | `default`, `speed`, `size` | Favor speed, size, or the default balance. |
+| `math-real` | `auto`, `target`, `builtin` | Choose automatically, use the target's `REAL` math, or use crustyBASIC's. |
+| `builtin-real` | `auto`, `q16_16`, `q24_8`, `binary64` | Choose how crustyBASIC stores `REAL` values. |
+| `math-integer` | `auto`, `target`, `builtin` | Choose automatically, use the target's integer math, or use crustyBASIC's. |
+| `numeric-mode` | `integer`, `real`, `real_narrow`, `integer_only_warn`, `integer_only_error` | Choose default numeric types and whether `REAL` is allowed. |
+| `type-policy` | Any policy shown by `crustybasic options` | Choose suffix meanings and types for names without an explicit type. |
 | `array-base` | `0`, `1` | Choose the first array index. |
-| `region` | `REGION_NTSC`, `REGION_PAL` | Choose timing data for targets that differ by region. |
-| `throttle` | `0` through `65535` | Add delay to approximate interpreted BASIC timing. |
-| `ram-top` | Decimal or hex with `$` or `0x` | Set the highest address available for program data. |
-| `start-program` | Decimal or hex with `$` or `0x` | Set the outer loaded program wrapper start when the startup format has one. |
-| `start-code` | Decimal or hex with `$` or `0x` | Set the generated machine code start address. |
-| `start-data` | Decimal or hex with `$` or `0x` | Set the mutable data start address for split code/data layouts. |
-| `chr-rom` | File path | Include a CHR ROM file in a cartridge. |
-| `disk-image` | `on`, `off`, `true`, `false`, `1`, `0` | Create or skip a disk image when supported. |
-| `asm-verbose` | `0`, `1`, `2` | Control how much detail appears in generated assembly files. |
+| `region` | `REGION_NTSC`, `REGION_PAL` | Choose timing data for systems that differ by region. |
+| `throttle` | `0` through `65535` | Add a delay that approximates interpreted BASIC timing. |
+| `ram-top` | Decimal or hex with `$` or `0x` | Set the highest address crustyBASIC may use for variables and other changeable data. |
+| `start-program` | Decimal or hex with `$` or `0x` | Set the program's load address when the selected format supports it. |
+| `start-code` | Decimal or hex with `$` or `0x` | Set the address where program code starts. |
+| `start-data` | Decimal or hex with `$` or `0x` | Set the address where changeable data starts when code and data are kept separate. |
+| `nes-chr-rom` | File path | Include NES graphics data from a CHR ROM file. |
+| `disk-image` | `on`, `off`, `true`, `false`, `1`, `0` | Create or skip a disk image when the system supports one. |
+| `asm-verbose` | `0`, `1`, `2` | Choose how much detail appears in assembly files written by crustyBASIC. |
 
-Run `crustybasic options` for the target specific `rom`, `system`, and
-`mapper` lists.
+The available `rom`, `system`, and `mapper` names depend on the target.
+Run `crustybasic options` to see them.
 
-`numeric-mode=real_narrow` still gives unsuffixed numeric names a
-`REAL` default, but the compiler may store proven integer only implicit
-variables as integers. `numeric-mode=integer` changes the default type
-and is not the same as a `REAL` dialect with narrowing.
+For `tile-backend`, `cell` uses the character screen, `hardware` uses
+the target's built in tile display, `bitmap` draws tiles in a bitmap
+graphics mode, and `kernel` uses a target specific tile mode.
 
-`type-policy` controls suffixes and the implicit types assigned to names.
-It normally comes from the selected target or dialect. See
-[Types](LANGUAGE.md#types) before overriding it directly.
+`numeric-mode` values have these meanings:
 
-`math-real=builtin` selects CrustyBASIC's `REAL` implementation.
-`builtin-real` chooses which builtin format to use. It does not affect
+| Value | What it does |
+| --- | --- |
+| `integer` | Names without a type default to integers. `REAL` can still be used explicitly. |
+| `real` | Names without a type default to `REAL`. |
+| `real_narrow` | Names without a type default to `REAL`, but variables used only for whole numbers may be stored as integers. |
+| `integer_only_warn` | Names without a type default to integers and `REAL` use produces a warning shown by `--show-warnings`. |
+| `integer_only_error` | Names without a type default to integers and `REAL` use is an error. |
+
+`type-policy` controls what suffixes such as `%`, `&`, and `!` mean, and
+the types assigned to names without a suffix. The target or dialect
+normally chooses it for you. Read [Types](LANGUAGE.md#types) before
+changing it.
+
+Set `math-real=builtin` to use crustyBASIC's own `REAL` math.
+`builtin-real` then chooses its format. It has no effect when
 `math-real=target`.
 
 | `builtin-real` | Meaning |
 | --- | --- |
-| `auto` | Use the target's preferred builtin format. |
+| `auto` | Use the target's preferred crustyBASIC format. |
 | `q16_16` | Fixed point with more fractional precision. |
 | `q24_8` | Fixed point with more integer range. |
+| `binary64` | Standard eight byte floating point, where the target supports it. |
 
-Some compile options are config and source only, so they are not
-accepted by `--set`:
+The following options work in config files and source code, but not
+with `--set`:
 
 | Key | Values | What it does |
 | --- | --- | --- |
-| `string-buffer-length` | `2` through `256` | Set the default and runtime string buffer length. |
-| `startup` | Target specific startup name | Select a startup template supplied by the target. |
-| `memory-regions` | array of target region names | Add named target memory regions to the program's usable RAM. |
-| `memory-actions` | array of target action names | Run named target startup actions. |
+| `string-default-capacity` | `1` through `256` | Set the usable capacity of a plain `STRING` declaration. |
+| `string-bounds-checks` | `true` or `false` | Check whole string assignments and appends while the program runs. The default is `false`. |
+| `startup` | Name listed on the target page | Choose how the program starts on the target. |
+| `memory-regions` | One or more target region names | Let crustyBASIC use these named memory regions. |
+| `memory-actions` | One or more target action names | Request extra setup named by the target page. |
 
-Named regions include their required actions automatically.
+Any setup required by a memory region is enabled with it.
 
-## Memory Regions
+## Memory regions
 
-Run `crustybasic target-info <system>` to inspect regions available for
-normal compiler placement on that system. It shows each listed region's
-ranges, code or data uses, loading method, whether it is enabled
-automatically, required actions, and disabled facilities.
+Run `crustybasic target-info <system>` to see the extra memory regions
+available on that system. For each region, it shows:
 
-Enabling a region adds its address ranges to the memory the compiler may
-use. The compiler decides what code or data to place there according to
-the region's supported uses and loading method. It does not assign a
-particular variable or PROC to the region.
+- its address ranges
+- whether it can hold code, data, or both
+- how it becomes available to the program
+- whether it is enabled automatically
+- any setup it needs before use
+- any features you give up by using it
 
-Enable a region in source with:
+Enabling a region lets crustyBASIC use that extra memory. crustyBASIC
+chooses what to place there; enabling a region does not place a
+particular variable or PROC there.
+
+In source code, enable a region with:
 
 ```basic
 @OPTION MEMORY_REGION name
 ```
 
-Or enable it in the program's config file:
+In the program's config file, use:
 
 ```toml
 memory-regions = ["name"]
 ```
 
-Repeat `@OPTION MEMORY_REGION` or add more names to the config array to
-enable multiple regions. Regions shown as enabled automatically need no
-option or config entry.
+Repeat `@OPTION MEMORY_REGION` to enable more than one region in source,
+or add more names to the config array. You do not need to list regions
+that `target-info` marks as enabled automatically.
 
-Some targets also expose startup actions that can be requested without
-adding a memory region:
+Some targets offer extra setup that can be requested without enabling a
+memory region:
 
 ```basic
 @OPTION MEMORY_ACTION name
@@ -207,31 +234,31 @@ adding a memory region:
 memory-actions = ["name"]
 ```
 
-`target-info` shows actions required by its listed regions. Other action
-names come from target data and are not currently listed by this
-command. Required actions are added automatically when you enable a
-region.
+Setup required by a memory region is added automatically. Use
+`MEMORY_ACTION` only when the target page names separate setup that your
+program needs.
 
-## Line Numbers
+## Line numbers
 
-Numbered listings are detected automatically. Mixed numbered and
-unnumbered program lines aren't allowed.
+crustyBASIC detects numbered listings automatically. A program cannot
+mix numbered and unnumbered lines.
 
 ```basic
 10 PRINT "HELLO"
 20 GOTO 10
 ```
 
-## Targets And Systems
+## Targets and systems
 
-Two names matter:
+You can choose a target family or one exact system:
 
-- **Target** - a machine family, such as `apple2`, `c64`, or `coco`.
-  Selecting a target uses that family's default system.
-- **System** - an exact machine profile within a family, such as
+- **Target** means a machine family, such as `apple2`, `c64`, or `coco`.
+  When you choose a target, crustyBASIC uses that family's default
+  system.
+- **System** means one exact machine setup in a family, such as
   `apple2.plus`, `c64.orig`, or `coco.3`.
 
-The compiler is the authoritative source for current names:
+Run these commands to see the names currently supported:
 
 ```bash
 crustybasic options
@@ -240,163 +267,177 @@ crustybasic target-info c64.orig
 crustybasic target-info all
 ```
 
-`options` lists valid target, system, ROM, dialect, mapper, and type
-policy names. `targets` summarizes every exact system's CPU, assemblers,
-runnable extensions, and exposed chips. `target-info` shows one system's
-default output, memory layout and regions, chips, and cartridge details.
-It expects an exact system name. Use `all`, or omit the name, to show
-every system.
+`options` lists the valid target, system, ROM, dialect, mapper, and type
+policy names. `targets` gives a short summary of each exact system,
+including its processor, supported assemblers, runnable file extensions,
+and named chips that programs can use.
 
-Use `OUTPUT_TYPE` for cartridge, disk, and other output choices within a
-system. Names ignore letter case. Each target has its own text
-encoding, such as PETSCII or ATASCII, so stick to plain ASCII for
-portable programs. When available, target specific setup, APIs, and
-limitations are in the [`targets/`](targets/) docs.
+`target-info` gives the details for one exact system: its default output,
+available memory, character codes, numbers available for custom
+characters, chips, and cartridge support. Pass `all`, or leave out the
+name, to show every system.
 
-## Picking A Target Or System
+Use `output-type` on the command line or `OUTPUT_TYPE` in source to
+choose between cartridge, disk, and other formats offered by a system.
+Names are not case sensitive. Each target has its own text encoding,
+such as PETSCII or ATASCII, so use plain ASCII in portable programs. The
+[`targets/`](targets/) pages cover setup, APIs, and limitations for
+individual targets.
 
-Use source options or CLI flags:
+## Picking a target or system
+
+Choose a target in the source:
 
 ```basic
 @OPTION TARGET c64
 ```
 
-Or select a specific system:
+Or choose an exact system:
 
 ```basic
 @OPTION SYSTEM coco.ecb
 ```
 
 ```bash
-crustybasic compile examples/__portable__/strings.cbs --set target=coco -o /tmp/strings.s
-crustybasic compile examples/__portable__/strings.cbs --set system=coco.ecb -o /tmp/strings.s
+crustybasic compile examples/__portable__/strings.cbs --set target=coco -o strings.s
+crustybasic compile examples/__portable__/strings.cbs --set system=coco.ecb -o strings.s
 crustybasic build-examples --set target=c64
 ```
 
-Config profiles can set `target` or `system` too; see
-[Folder Config](#folder-config). CLI `--set` always wins. A
-dialect default only applies when nothing more specific selected a
-target or system.
+You can also set `target` or `system` in a config file; see
+[Folder config](#folder-config). A command line `--set` takes priority
+over config and source settings. A target or system supplied by the
+dialect only applies when nothing else has chosen one.
 
-## Cartridge Mappers
+## Cartridge mappers
 
-A mapper describes how a cartridge presents ROM to the program. A simple
-layout exposes one fixed ROM area. A banked layout divides a larger ROM
-into sections and swaps selected sections into a smaller address range
-when needed.
+A cartridge mapper controls how a cartridge is divided. A simple mapper
+uses one fixed area. A banked mapper divides a larger cartridge into
+numbered banks that the program uses as needed.
 
-`MAPPER` applies to cartridge output. Select it in source:
+`MAPPER` only applies to cartridge output. Choose one in source:
 
 ```basic
 @OPTION OUTPUT_TYPE cart
 @OPTION MAPPER name
 ```
 
-Or on the command line:
+Or choose it on the command line:
 
 ```bash
 crustybasic build program.cbs --set output-type=cart --set mapper=name
 ```
 
-You can omit `OUTPUT_TYPE` when cartridge is already the system's
-default output. The accepted output and mapper names are target specific.
+You can leave out `OUTPUT_TYPE` when cartridge is already the system's
+default output. Output and mapper names depend on the target.
 
-Mapper names, default layouts, bank sizes, cartridge limits, and any
-extra cartridge inputs depend on the target. Run `crustybasic options`
-for the accepted names, and see the individual target's cart info for specifics
+Run `crustybasic options` to see the available mapper names. The
+[`targets/`](targets/) pages explain each target's default layout, bank
+size, cartridge limits, and any extra files it needs.
 
+## Banked builds
 
-## Banked Builds
+A banked cartridge is divided into numbered sections that are not all
+available at once. Some banks stay available, while others are selected
+as needed. The matching [target page](targets/) explains when PROCs and
+DATA can be used across banks.
 
-A banked build divides cartridge content into numbered sections that may
-not all be available at the same time. The mapper decides which areas
-remain available, which areas are switched, and what code and DATA
-can be used across banks.
-
-With a banked mapper, use `@BANK PRG N ... @ENDBANK` to place enclosed
-PROCs and DATA in program bank `N`. Bank numbers start at `0`.
+With a banked mapper, put `@BANK N` and `@ENDBANK` around the PROCs and
+DATA that belong in program bank `N`. Bank numbers start at `0`.
 
 ```basic
-@BANK PRG 0
+@BANK 0
 DATA 1, 2, 3
 @ENDBANK
 ```
 
-Where supported, the related controls have the same general purpose:
+When `@INCLUDE_BIN` or `@INCLUDE_IMAGE` appears inside the block, its
+`CONST` array goes into the same bank.
+
+These are the controls you will normally use:
 
 | Control | What it does |
 | --- | --- |
-| `@OPTION OUTPUT_TYPE name` or `--set output-type=name` | Select a cartridge output. |
-| `@OPTION MAPPER name` or `--set mapper=name` | Select the cartridge layout. |
-| `@BANK PRG N ... @ENDBANK` | Place enclosed PROCs and DATA in numbered program bank `N`. |
-| `--emit-asm path` | Keep the generated main and bank assembly files. |
-| `--size-report` | Show the space used and available in the cartridge banks. |
+| `@OPTION OUTPUT_TYPE name` or `--set output-type=name` | Choose a cartridge output. |
+| `@OPTION MAPPER name` or `--set mapper=name` | Choose the cartridge layout. |
+| `@BANK N ... @ENDBANK` | Put the enclosed PROCs, CONST arrays, and DATA in program bank `N`. |
+| `--emit-asm path` | Keep the assembly files created for the main program and its banks. |
+| `--size-report` | Show used and available space in the cartridge banks. |
 
-See [`@BANK` / `@ENDBANK`](LANGUAGE.md#bank--endbank) for the source
-rules. See the target pages listed under [Cartridge Mappers](#cartridge-mappers)
-for the available layouts and target specific details.
+See [`@BANK` / `@ENDBANK`](LANGUAGE.md#bank--endbank) for the exact
+source rules. The [`targets/`](targets/) pages explain the layouts
+available on each target.
 
 ## Dialects
 
-Select a dialect with `--set dialect=...`, `@OPTION DIALECT`, or a
-config profile. Run `crustybasic options` for the names supported by the
-installed compiler. The language reference explains what dialects
-change: [Dialects](LANGUAGE.md#dialects). Config profile discovery and
-layering are covered in [Folder Config](#folder-config).
+Choose a dialect with `--set dialect=...`, `@OPTION DIALECT`, or a
+config file. Run `crustybasic options` to see the dialects supported by
+your copy of crustyBASIC. See [Dialects](LANGUAGE.md#dialects) for the
+source rules a dialect can change.
 
-### Tokenized BASIC Files
+### Tokenized BASIC files
 
-Use `detokenize` to inspect tokenized BASIC files:
+Use `detokenize` to turn a tokenized BASIC file back into readable
+source:
 
 ```bash
-crustybasic detokenize PROGRAM.BAS --set dialect=atari_basic -o /tmp/program.bas
+crustybasic detokenize PROGRAM.BAS --set dialect=atari_basic -o decoded_program.bas
 ```
 
-Without `-o`, the decoded text goes to stdout. If no dialect is set,
-`detokenize` tries known decoders and otherwise treats the input as
-plain text. Use `--from-tokenized=NAME` to force a decoder and
-`--from-hex` for ASCII hex dumps.
+Without `-o`, the decoded text is printed in the terminal. If you do not
+choose a dialect, `detokenize` tries the supported tokenized formats and
+then treats the input as plain text when none match. Use
+`--from-tokenized=NAME` to choose the format yourself. Add `--from-hex`
+when the input is an ASCII hex dump.
 
-## Folder Config
+## Folder config
 
-The nearest `crustybasic.config.toml` applies to sources in that folder
-and its children. A file specific `<name>.config.toml` beside the source
-is layered on top of the folder file for that source, overriding only
-the values it sets. Config discovery starts from the entry source file.
-Sibling config files beside `@INCLUDE`d files are ignored.
+For a source file, crustyBASIC looks in its folder and then each parent
+folder for the nearest `crustybasic.config.toml`. That config applies to
+source files in its folder and subfolders.
 
-Compile option keys normally use the same spelling as `--set`, except
-that `asm-verbose` is CLI only. Config values use TOML syntax, so string
-choices are quoted and booleans are `true` or `false`. Named enum values
-use their source spelling, for example:
+You can also put `<name>.config.toml` beside one source file. For
+`game.cbs`, that would be `game.config.toml`. Its settings are applied
+after the folder config, and it only replaces values that it sets.
+Config files beside files brought in with `@INCLUDE` are ignored.
+
+Most compile option keys use the same spelling as `--set`.
+`asm-verbose` is command line only and cannot be used here. Config files
+use TOML syntax, so strings need quotes and booleans are `true` or
+`false`. Named values use their source spelling:
 
 ```toml
 region = "REGION_PAL"
 tile-backend = "TILE_BITMAP"
 ```
 
-Config also has these project keys:
+Config files also support these project settings:
 
 | Key | What it does |
 | --- | --- |
-| `include` | Include one path or an array of paths before the source. Relative paths start from the config file's directory. |
-| `build-examples` | Set to `false` to skip the source during `build-examples`. |
-| `bit-on-char`, `bit-off-char` | Change the two characters used by visual binary literals. |
+| `include` | Include one path, or an array of paths, before the source. Relative paths start from the config file's folder. |
+| `build-examples` | Set this to `false` to skip the source during `build-examples`. |
+| `build-example-targets` | In the top example folder, limit example builds to these target families. |
+| `bit-on-char`, `bit-off-char` | Choose the two characters used in visual binary literals. |
 
-The config and source only compile options are listed above under
-`--set` Options. Config can also define a custom `[type-policy.NAME]`;
-see [Types](LANGUAGE.md#types).
+The options that only work in config and source are listed under
+[Compile options](#compile-options). A config file can also define a custom
+`[type-policy.NAME]`; see [Types](LANGUAGE.md#types).
 
-When profiles are layered, scalar values in the more specific file
-replace earlier values. Lists such as `include`, `memory-regions`, and
-`memory-actions` append with the base file first.
+When both folder and file config apply, a single value in the file config
+replaces the folder value. Lists such as `include`, `memory-regions`, and
+`memory-actions` are combined instead, with the folder config's items
+first.
 
-Any config setting other than `target` or `system` can be limited to one
-target or system with `[target.NAME]` or `[system.NAME]`. A matching
-system section replaces scalar values from the matching target section;
-list values append. The active scope comes from the CLI, the unscoped
-config, or a dialect default. A target selected only inside the BASIC
-source is too late to activate a scoped config section.
+You can limit any setting except `target` or `system` to one target or
+system by putting it under `[target.NAME]` or `[system.NAME]`. When both
+sections match, a value in the system section replaces the same value
+from the target section. Lists are combined.
+
+Target and system sections are selected by the command line, settings at
+the top of the config file, or the dialect default. An `@OPTION TARGET`
+or `@OPTION SYSTEM` inside the BASIC source does not select config
+sections.
 
 ```toml
 # crustybasic.config.toml
@@ -406,7 +447,7 @@ include = "my_style.cbi"
 
 [target.vic20]
 optimize = "size"
-string-buffer-length = 32
+string-default-capacity = 32
 
 [target.atari2600]
 optimize = "size"
@@ -415,15 +456,23 @@ optimize = "size"
 build-examples = false
 ```
 
+To limit a full example run, put `build-example-targets` in the
+`crustybasic.config.toml` at the top of that example folder:
+
+```toml
+build-example-targets = ["apple2", "c64", "coco"]
+```
+
 ```toml
 # game.config.toml for game.cbs
 target = "nes"
 optimize = "speed"
 ```
 
-For `game.cbs`, `target` is `nes`, `optimize` is `speed`, and
-`array-base` remains `1`. `my_style.cbi` is still included before the
-source and can hold folder spelling preferences:
+For `game.cbs`, the file config changes `target` to `nes` and
+`optimize` to `speed`. It does not mention `array-base`, so that remains
+`1`. `my_style.cbi` is still included before the source and can define
+spelling preferences for the folder:
 
 ```basic
 ' my_style.cbi
@@ -431,82 +480,78 @@ source and can hold folder spelling preferences:
 @REWRITE INKEY$ = INKEY
 ```
 
-
 ## Assemblers
 
-`build` needs the assembler and syntax expected by the selected system.
-Run `crustybasic targets` to see each system's current default assembler
-and executable name.
+`build` needs an assembler that understands the selected system's
+assembly syntax. Run `crustybasic targets` to see the assembler and
+executable name expected for each system.
 
-The compiler looks for a compatible executable using the paths declared
-by the target manifests. Release bundles create the matching
-`tools/assemblers/<assembler>/<platform>/` directory, but do not include
-assembler binaries. Place the expected executable there or pass it with
-`--assembler`. Build helpers are discovered from the same manifest data.
-If a required executable is unavailable, the build reports what must be
-provided.
+crustyBASIC looks for that executable in the paths set for the target. A
+release bundle contains the matching
+`tools/assemblers/<assembler>/<platform>/` folder, but not the assembler
+itself. Put a compatible executable there, or give its path with
+`--assembler`. If the system needs another build tool and it is missing,
+`build` tells you what it needs.
 
-To use a different executable, pass one directly:
+To choose an assembler for one build, pass its path directly:
 
 ```bash
 crustybasic build hello.cbs --assembler /path/to/vasm6502_oldstyle -o hello.prg
 ```
 
-Or create a `crustybasic.toml` next to the compiler and pin it per
-target:
+To keep the choice, create `crustybasic.toml` beside the crustyBASIC
+executable and set the assembler for that target. This is the tool
+config, not the `crustybasic.config.toml` used by individual programs:
 
 ```toml
 [targets.c64]
 assembler = "/path/to/vasm6502_oldstyle"
 ```
 
-(When building from the source tree, the same override goes in
-`Cargo.toml` as `[package.metadata.crustybasic.targets.c64]`.)
+`--assembler` takes priority over the tool config. A relative path starts
+from the folder where you run `crustybasic`, so an absolute path is
+usually safer. When neither is set, crustyBASIC checks its install
+folder.
 
-An explicit `--assembler` flag beats the config entry, which beats the
-automatic bundled lookup. Relative override paths resolve against the
-directory you run `crustybasic` from, so prefer absolute paths there;
-the automatic lookup always resolves against the install directory and
-works from anywhere. Use `--crustybasic-toml path` to test a config
-without moving it beside the compiler.
+Use `--crustybasic-toml path` to try a tool config without putting it
+beside the crustyBASIC executable.
 
-## Outputs And Side Artifacts
+## Outputs and extra files
 
-A system may support several runnable formats. `target-info` shows its
-default and any cartridge output names. When a page is available under
-[`targets/`](targets/), it covers that target's other formats. Select an
-output by its manifest name:
+A system can support more than one runnable format. `target-info` shows
+the default format and any cartridge formats. The matching page under
+[`targets/`](targets/) describes other formats when they are available.
+Choose a format by name:
 
 ```bash
 crustybasic target-info c64.orig
 crustybasic build program.cbs --set output-type=cart
 ```
 
-An explicit `-o` extension also selects the matching output when that
-choice is unambiguous. Use `output-type` when you want the choice to be
-independent of the filename.
+The extension on an explicit `-o` path can also choose the format when
+only one format uses that extension. Use `output-type` when the filename
+should not decide.
 
-Some output recipes also create side artifacts. The build prints the
-primary output and every side artifact it writes. `disk-image=true` is a
-convenience for selecting a system's sole disk output or enabling its
-disk side artifact:
+Some formats create extra files along with the main program. `build`
+prints every path it writes. `disk-image=true` asks for a disk image. It
+uses the system's disk format when only one is available:
 
 ```bash
 crustybasic build program.cbs --set disk-image=true
 ```
 
-If a system offers more than one disk format, select the exact one with
-`output-type`. Use `disk-image=false` to suppress side artifacts that
-would otherwise be created by default.
+If a system has more than one disk format, choose the exact one with
+`output-type`. Use `disk-image=false` to skip disk images that would
+otherwise be created automatically.
 
-A missing required assembler or helper fails the build. A recipe step
-marked optional warns and leaves the main output intact. See the
-available [`targets/`](targets/) docs for format contents and runtime
-requirements.
+The build fails when a required assembler or other tool is missing. If an
+optional step cannot run, the build warns you but keeps the main output.
+The [`targets/`](targets/) pages explain what each format contains and
+what it needs when the program runs.
 
-## Compile Options In Source
+## Compile options in source
 
-Common source options:
+These are some commonly used source options:
 
 ```basic
 @OPTION TARGET c64
@@ -517,36 +562,37 @@ Common source options:
 @OPTION MATH_INTEGER BUILTIN
 @OPTION NUMERIC_MODE INTEGER
 @OPTION REGION REGION_NTSC
-@OPTION STRING_BUFFER_LENGTH 64
+@OPTION STRING_DEFAULT_CAPACITY 64
+@OPTION STRING_BOUNDS_CHECKS TRUE
 @OPTION THROTTLE 10
 ```
 
-`@OPTION TARGET` or `@OPTION SYSTEM` must appear before target specific
-statements. `@OPTION DIALECT` applies that dialect's defaults only to
-options you have not already set.
+Put `@OPTION TARGET` or `@OPTION SYSTEM` before any target specific
+statements. `@OPTION DIALECT` fills in the dialect's defaults without
+replacing options you have already set.
 
-`crustybasic options` prints the authoritative list of CLI options. See
-[Compiler options](LANGUAGE.md#compiler-options) for source options and
-the available [`targets/`](targets/) docs for target specific options.
+Run `crustybasic options` for the available command line options. See
+[source options](LANGUAGE.md#compiler-options) and
+the [`targets/`](targets/) pages for target specific choices.
 
 ## Throttling
 
-Native code is much faster than interpreted BASIC. Throttling adds a
-small delay to each statement so timing dependent games feel closer to
-the original interpreter.
+Compiled code runs much faster than interpreted BASIC. Throttling adds a
+small delay to each statement so games that depend on interpreter speed
+feel closer to the original.
 
 ```basic
 @OPTION THROTTLE 8
 ```
 
 ```bash
-crustybasic compile game.bas --set dialect=applesoft_basic --set throttle=8 -o /tmp/game.s
+crustybasic compile game.bas --set dialect=applesoft_basic --set throttle=8 -o game.s
 ```
 
-`0` disables throttling. Routines marked with `@ASYNC`, and every PROC
-they can call, are left unthrottled. Start low and tune by feel.
+Set throttling to `0` to turn it off. Code that can run from an `@ASYNC`
+PROC is not throttled. Start with a small value and adjust it by feel.
 
-## Example Layout
+## Example layout
 
 | Path | What's in it |
 | --- | --- |
@@ -554,17 +600,18 @@ they can call, are left unthrottled. Start low and tune by feel.
 | `examples/<target>/crustybasic/` | Target specific crustyBASIC programs. |
 | `examples/<target>/dialects/<dialect>/` | Compatibility dialect listings. |
 
-Compile an example using its directory [config profile](#folder-config):
+The config file in an example's folder normally chooses the right
+target and dialect:
 
 ```bash
-crustybasic compile examples/apple2/dialects/applesoft_basic/calculator.bas -o /tmp/calculator.s
+crustybasic compile examples/apple2/dialects/applesoft_basic/calculator.bas -o calculator.s
 ```
 
-Or with everything explicitly specified:
+You can also choose everything on the command line:
 
 ```bash
-crustybasic compile examples/apple2/dialects/applesoft_basic/calculator.bas --set dialect=applesoft_basic --set system=apple2.plus -o /tmp/calculator.s
+crustybasic compile examples/apple2/dialects/applesoft_basic/calculator.bas --set dialect=applesoft_basic --set system=apple2.plus -o calculator.s
 ```
 
-The core language reference is in [LANGUAGE.md](LANGUAGE.md), and the
-portable API reference is in [API.md](API.md).
+For the language itself, see [LANGUAGE.md](LANGUAGE.md). For portable
+library routines and constants, see [API.md](API.md).

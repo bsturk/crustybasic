@@ -24,9 +24,10 @@
 
 # crustyBASIC
 
-CrustyBASIC is a Rust-based BASIC cross-compiler for 80s era
-computers and consoles. It compiles BASIC source into native machine code
-to run faster.  It is available for Windows, MacOS, and Linux.
+CrustyBASIC is a Rust-based BASIC cross-compiler for vintage
+computers and video game consoles as well as modern systems. It compiles BASIC 
+source into native machine code to run faster.  It is available 
+for Windows, MacOS, and Linux.
 
 **Currently supported targets:**
 
@@ -36,18 +37,25 @@ to run faster.  It is available for Windows, MacOS, and Linux.
   - 400/800/XL/XE
   - 5200
   - 2600
+  - 7800
 - Commodore
-  - 64/64u
+  - 64, 64 Ultimate
   - 128
   - Plus/4
   - VIC-20
 - Tandy/Radio Shack
-  - Coco 1,2,3
+  - Coco 1, 2, 3
+  - TRS-80 Model I, II, III, 4
 - PC
     - MS-DOS 16-bit
-    - Windows 64 bit GDI and console (Win XP...Win 11)
+    - Windows 64 bit GDI and console (`win64`, Win XP...Win 11)
+    - Linux x64 console (`linux64`)
 - Nintendo
   - NES
+  - Super Nintendo
+- Sinclair
+  - ZX81
+  - Timex Sinclair 1000
 
 ## Downloading the Compiler
 
@@ -55,36 +63,70 @@ To download the latest compiled binaries, visit the **[Releases Section](https:/
 
 ## Quick Start
 
-Save the below text as `hello.cbs`:
+### Build for one target
+
+Save this as `hello.cbs`. `@OPTION TARGET c64` selects the C64:
 
 ```basic
 @OPTION TARGET c64
 
 CLS
 POSITION 0, 0
-PRINT "HELLO, WORLD!"
+PRINT "HELLO, C64!"
 ```
 
-Compile it to assembly:
+Build the runnable program:
+
+```bash
+crustybasic hello.cbs
+```
+
+For the C64, this writes `hello.prg` by default. Use `-o` only to
+choose a different name. You can also write the command explicitly:
+
+```bash
+crustybasic build hello.cbs
+```
+
+To stop after generating assembly instead, use `compile`:
 
 ```bash
 crustybasic compile hello.cbs -o hello.s
 ```
 
-Build a runnable C64 `.prg` in one shot. This requires an assembler
-to be staged (in this case `vasm`); see [USAGE.md#assemblers](doc/USAGE.md#assemblers).
+### Build for several targets
+
+To build the same program for several targets when the source is portable,
+leave out `@OPTION TARGET c64`:
+
+```basic
+CLS
+POSITION 0, 0
+PRINT "HELLO, {target}!"
+```
 
 ```bash
-crustybasic build hello.cbs -o hello.prg
+crustybasic build hello.cbs --set target=c64
+crustybasic build hello.cbs --set target=atari800
+crustybasic build hello.cbs --set target=zx81
 ```
+
+Each command creates the usual runnable file for that target, and
+`{target}` is replaced with its target name. Building requires the target's
+assembler; see [USAGE.md#assemblers](doc/USAGE.md#assemblers).
 
 ## Screenshots
 
 Screenshots and emulator pics are in [screenshots](./screenshots).
 
+## Community
+
+- [Discord](https://discord.gg/hCJf2Pcph) - join the discussions
+- [itch.io](https://telengard.itch.io/crustybasic) - visit the CrustyBASIC page
+
 ## Submitting Bugs
 
-Please submit bug reports through the GitHub Issues tab above.
+Please submit bug reports through the GitHub Issues tab above or on Discord.
 Include the CrustyBASIC version, your operating system, the target or system you
 are building for, the command you ran, and any compiler or assembler output.
 

@@ -19,7 +19,9 @@ For command-line target selection and dialects, see
 
 Output is a DOS 3.3 `BRUN` binary (`.bin`). With
 `--set disk-image=true`, `build` also writes a bootable `.dsk` using
-the bundled DOS 3.3 image writer.
+the bundled DOS 3.3 image writer. Files named by `@INCLUDE_FILE`,
+`@INCLUDE_IMAGE`, and `@INCLUDE_AUDIO` go on that disk, uppercased and
+cut to the 30 characters a DOS 3.3 catalog holds.
 
 ## Basics
 
@@ -179,13 +181,13 @@ to `BUILTIN`. Selecting `MOCKINGBOARD` without setting a slot is an
 error. Setting a slot alone leaves portable sound on the speaker while
 making the `MOCKINGBOARD.*` interface available.
 
-With the Mockingboard backend, `SOUND`, `SOUND_RAW`, `SOUND_OFF`,
-`SOUND_ALL_OFF`, `BEEP`, `SOUND_FREQ`, `PLAY_NOTE`, `PLAY_NOTE_SHAPE`,
-and blocking `PLAY_NOTE_FOR` use the card. Voices 0 through 2 use the
-first AY and voices 3 through 5 use the second. Native `SOUND` frequency
-values are 12 bit AY periods. Tone and noise shapes are supported, with
-a per voice volume from 0 through 15.
-`SOUND_AVAILABLE` is `1` for this backend. Timed sound is not
+With the Mockingboard backend, portable `SOUND_OFF`, `SOUND_ALL_OFF`,
+`BEEP`, `PLAY_NOTE`, `PLAY_NOTE_SHAPE`, `PLAY_NOTE_FOR`, and
+`PLAY_NOTE_SHAPE_FOR` use the card. Voices 0 through 2 use the first AY
+and voices 3 through 5 use the second. Tone and noise shapes are
+supported, with a per voice volume from 0 through 15. Exact AY periods
+and other register effects use `MOCKINGBOARD.WRITE`.
+`SOUND_SUPPORTED` is `TRUE` for this backend. Timed sound is not
 available.
 
 The direct interface initializes itself when portable sound first uses

@@ -1,6 +1,6 @@
 # crustyBASIC on Windows x64
 
-Use `@OPTION TARGET winx64` for the Windows x64 executable target.
+Use `@OPTION TARGET win64` for the Windows x64 executable target.
 Output is a native `.exe`.
 
 Portable runtime calls are documented in [`../API.md`](../API.md).
@@ -12,7 +12,7 @@ notes. For command line target selection and dialects, see
 
 | System | Output | Notes |
 | --- | --- | --- |
-| `winx64` | `.exe` | Native Windows x64 PE executable. |
+| `win64` | `.exe` | Native Windows x64 PE executable. |
 
 NASM is the supported assembler. The target emits a PE executable
 directly from NASM output.
@@ -28,14 +28,14 @@ directly from NASM output.
 | String encoding | ASCII, with non ASCII bytes encoded as `?` |
 | Newline byte | `$0D` |
 | Integer math | Built in 16 bit integer support |
-| `REAL` math | Not supported currently |
+| `REAL` math | Native 64 bit IEEE 754 |
 | Host OS | Win32 APIs are available |
 
 All current Windows x64 programs use a 256 byte string buffer limit.
 
 ## Program Window
 
-By default, `winx64` builds a console subsystem executable. Text output
+By default, `win64` builds a console subsystem executable. Text output
 uses the console, and input reads console events.
 
 When a console build also opens a GDI window, keyboard input follows the
@@ -51,12 +51,12 @@ Add this source option for a GUI subsystem executable with no console
 window:
 
 ```basic
-@OPTION WINX64_CONSOLE_WINDOW FALSE
+@OPTION WIN64_CONSOLE_WINDOW FALSE
 ```
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `WINX64_CONSOLE_WINDOW` | `TRUE` | `FALSE` uses only the GDI window for text, graphics, and input. |
+| `WIN64_CONSOLE_WINDOW` | `TRUE` | `FALSE` uses only the GDI window for text, graphics, and input. |
 
 In UI window mode, `PRINT` text is drawn in the GDI window, `KEY` and
 `INKEY_CODE` read window character input, and closing the window exits
@@ -64,7 +64,7 @@ the process on the next message pump or frame wait.
 
 Console mode remains useful for text only programs and command line
 tools. GDI examples that should not show a console window should set
-`WINX64_CONSOLE_WINDOW FALSE`.
+`WIN64_CONSOLE_WINDOW FALSE`.
 
 ## Text And Cells
 
@@ -79,7 +79,8 @@ window size. Public dimensions cap at 255 cells because text coordinates are
 U8; clearing and cursor tracking still use the full Windows dimensions.
 
 UI window mode draws text into the GDI window using 8x16 cells. The
-text grid is still 80x25. `TEXT_COLOR` and `CELL_COLOR` are available;
+text grid is still 80x25. `TEXT_COLOR`, `CELL_COLORS`, and per-cell
+`CELL_COLOR` are available;
 cell attributes are not.
 
 | Capability | Value |
@@ -91,8 +92,9 @@ cell attributes are not.
 
 ## Graphics
 
-Graphics are backed by a 32 bit GDI DIB buffer. The portable color
-model exposes 16 logical colors.
+Graphics are drawn into a buffered 32 bit GDI DIB. The portable color
+model exposes 16 logical colors. `GFX_BUFFERING` is `GFX_BUFFERING_COPY`, so `GFX_SWAP` is
+`TRUE`.
 
 The default graphics mode is `BITMAP_HIRES`.
 
@@ -110,8 +112,21 @@ The default graphics mode is `BITMAP_HIRES`.
 GDI drawing. `GDI_FILL_RECT(x, y, w, h)` fills a rectangle with
 the current GDI foreground color.
 
-`FRAME_WAIT` presents pending GDI work and paces to about 60 frames per
-second.
+`GFX_CLS`, `GDI_FILL_RECT`, and other drawing calls update the buffered
+bitmap. `GFX_SWAP` publishes it immediately. `FRAME_WAIT` and blocking
+input calls also publish pending changes, so portable programs do not
+need a Windows-specific swap.
+
+A typical bitmap frame loop is:
+
+```basic
+DO
+	GFX_CLS
+	PLOT 10, 10
+	GFX_SWAP
+	FRAME_WAIT
+LOOP
+```
 
 ## Images
 
@@ -119,7 +134,7 @@ Native image display supports:
 
 | Format | Accepted files |
 | --- | --- |
-| `IMAGE_FMT_WINX64_INDEXED` | 256x192, one palette index byte per pixel. |
+| `IMAGE_FMT_WIN64_INDEXED` | 256x192, one palette index byte per pixel. |
 
 Images are linked into the program rather than loaded from Windows
 files at runtime. Runtime image file loading is not available.
@@ -139,8 +154,8 @@ bitmap buffer.
 | Collision | General sprite hit flag |
 | Flip, stretch, priority, palette | Not supported |
 
-Sprites are flushed during frame work, so frame paced programs should
-call `FRAME_WAIT`.
+Call `SPRITES_FLUSH` before `GFX_SWAP` to draw staged sprites into the
+buffered bitmap. `FRAME_WAIT` does not flush or publish sprites.
 
 ## Tile
 
@@ -183,24 +198,68 @@ The button maps to Space, Enter, or Ctrl.
 
 ## Sound
 
-The sound APIs mix four square wave voices through Windows audio. `SOUND`
-and `PLAY_NOTE` continue until `SOUND_OFF` or `SILENCE`. `PLAY_NOTE_FOR`
-and `BEEP` stop after their duration.
+The portable sound calls mix four square wave voices through Windows
+audio. `PLAY_NOTE` continues until `SOUND_OFF` or `SILENCE`.
+`PLAY_NOTE_FOR`, `PLAY_NOTE_SHAPE_FOR`, and `BEEP` stop after their
+duration. `PLAY_NOTE_SHAPE` is accepted, but this target has only
+square wave output.
 
 Notes map MIDI note numbers 36..95 through a Hz table. Volume is on or
-off.
+off. `SOUND_PRESENT` reports whether Windows has a waveform output device.
+
+## Audio
+
+Win64 plays prepared PCM WAV assets through `PlaySoundA` with the
+memory, asynchronous, and no-default flags:
+
+- `AUDIO_PLAYBACK_MODEL = AUDIO_PLAYBACK_AUTOMATIC` - Windows advances
+  playback; `AUDIO_SERVICE` is a no-op.
+- `AUDIO_FILE_SUPPORTED = TRUE` - `AUDIO_LOAD(path$)` preloads a prepared
+  `.CBA` file into allocated memory and closes the file before
+  returning.
+- `AUDIO_TARGET_FILE_SUPPORTED = TRUE` - the path overload also accepts a
+  plain RIFF/WAVE PCM file.
+- `AUDIO_SOUND_SHARED = FALSE` - `PlaySound` is process wide, so AUDIO and
+  the generated sound voices replace each other; do not use portable
+  note calls while AUDIO is active.
+
+Accepted WAV sources are `WAVE_FORMAT_PCM` with one or two channels and
+8- or 16-bit samples. RIFX, RF64, IEEE float, `WAVE_FORMAT_EXTENSIBLE`,
+and compressed codecs are rejected at conversion time. The CBA payload
+is a canonical RIFF/WAVE image, so Windows consumes it directly. If the
+waveform device rejects the prepared format at runtime, `AUDIO_PLAY`
+returns `0` and the asset stays loaded and stopped.
+
+The build host cannot try the waveform device, so device format support
+is a runtime question; playback has not yet been verified audibly on
+Windows hardware.
 
 ## Timing
 
-`FRAME_WAIT` uses `GetTickCount64` and `Sleep` to pace frames at about
-60 Hz. `TICKS` uses the frame counter fallback.
+`FRAME_WAIT` publishes pending graphics, uses `GetTickCount64` and `Sleep`
+to pace frames at about 60 Hz, and advances `FRAME_COUNTER`. `TICKS` uses
+the frame counter fallback.
 
 | Capability | Value |
 | --- | --- |
-| `FRAME_AVAILABLE` | Yes |
-| `TIMER_AVAILABLE` | No |
+| `FRAME_SUPPORTED` | Yes |
+| `TIMER_SUPPORTED` | No |
 | `TICKS_HZ` | 60 |
-| `TICKS_FREE_RUNNING` | 0 |
+| `TICKS_FREE_RUNNING` | FALSE |
+
+## System Commands
+
+Windows x64 can run system commands and return their exit status.
+`CMD_OPEN` captures standard output and standard error together. Use
+`CMD_READ_LINE` to read the captured output, then `CMD_CLOSE` to finish
+the command and get its exit status. Only one captured command can be
+active at a time, and each line is limited by the destination string's
+capacity.
+
+| Capability | Value |
+| --- | --- |
+| `CMD_SUPPORTED` | Yes |
+| `CMD_OUTPUT_SUPPORTED` | Yes |
 
 ## Files And Net
 
@@ -216,4 +275,4 @@ through 15, and the current net buffer is 512 bytes.
 
 Windows x64 examples live under:
 
-- [`../../examples/winx64/`](../../examples/winx64/)
+- [`../../examples/win64/`](../../examples/win64/)

@@ -1,153 +1,211 @@
-# CrustyBASIC API Reference
+# crustyBASIC API Reference
 
-This page covers crustyBASIC runtime calls, portable helper libraries,
+This doc is a reference for the calls and values available to a
+crustyBASIC program. It covers text, graphics, sound, input, files,
 hardware access, and memory operations.
+
 Core language syntax and builtins are documented in
-[LANGUAGE.md](LANGUAGE.md), and command-line use is documented in
+[LANGUAGE.md](LANGUAGE.md), and command line use is documented in
 [USAGE.md](USAGE.md).
 
-Portable runtime calls work on all targets unless noted. Optional
-helper libraries list their own limits.
+Most names stay the same from one target to another, but the available
+features vary. Each section tells you how to check optional features.
+
+Names ending in `_SUPPORTED` are compile-time constants. Use them with
+`@IF` or `@REQUIRES` when a program needs a target feature. Names ending
+in `_AVAILABLE()` are runtime probes for hardware or services that may not
+be present or ready.
 
 ## Text
 
 | Call                               | What it does                                                     |
 | ---------------------------------- | ---------------------------------------------------------------- |
-| `CLS()`                            | Alias of `CELL_CLS()`.                                           |
-| `CLEAR_LINE()` / `CLEAR_LINE(row)` | Blank current or zero-based text row and leave cursor at start.  |
-| `POSITION(col, row)`               | Move text cursor to zero-based col/row.                          |
-| `PRINT_CENTER(row, s$[, width])`   | Print s$ centered on a text row; width defaults to `TEXT_WIDTH`. |
-| `CURSORCOL()`                      | Current text cursor column (returns `U8`).                       |
-| `CURSORROW()`                      | Current text cursor row (returns `U8`).                          |
+| `CLS()`                            | Clear ordinary text output and home the cursor.                  |
+| `CLEAR_LINE()` / `CLEAR_LINE(row)` | Blank the current row or a row numbered from zero, and leave the cursor at its start. |
+| `PRINT_AT(col, row, s$)`           | Move the cursor and print a string without adding a newline.     |
+| `PRINT_CENTER_X(row, s$[, width])` | Print s$ centered on a text row; width defaults to `TEXT_COLUMNS`. |
+| `POSITION(col, row)`               | Move the text cursor to a column and row numbered from zero.     |
 | `CURSOR_HIDE()`                    | Hide the text cursor when the target has a visible one.          |
 | `CURSOR_SHOW()`                    | Show the text cursor when the target has a visible one.          |
+| `CURSOR_COL()`                     | Current text cursor column (returns `U8`).                       |
+| `CURSOR_ROW()`                     | Current text cursor row (returns `U8`).                          |
 | `TEXT_COLOR(color)`                | Set the current `PRINT`/`INPUT` text color when supported.       |
+| `TEXT_COLOR_RGB(r, g, b)`          | Set text color from `0` through `255` red, green, and blue values when supported. |
 
-`TEXT_COLOR` is always callable. It does nothing on targets without a
-current text color, and `TEXT_COLOR_AVAILABLE` is `1` when the active
-target implements it. Direct text cell access is separate:
-`CELL_AVAILABLE` is `1` when raw cell APIs are meaningful.
-`CELL_HAS_COLOR` reports whether `CELL_COLOR` has target support, and
-`CELL_COLOR_MODEL` describes how those colors are stored. `CELL_COLOR_W`
-and `CELL_COLOR_H` report color attribute granularity in cells, not
-glyph pixel size. `CELL_MULTICOLOR_AVAILABLE` is `1` when
-`DISPLAY(CELL_MULTICOLOR)` has target support. Cell attributes use
-`CELL_HAS_ATTRIB`; `CELL_ATTRIB_W` and `CELL_ATTRIB_H` report their
-granularity.
+You can call `TEXT_COLOR` on any target. It does nothing when text color
+cannot be changed. `TEXT_COLOR_SUPPORTED` is `TRUE` when it works.
+`TEXT_COLOR_RGB` works the same way and does nothing when the target
+cannot set text color with RGB values.
+
+`TEXT_OUTPUT_SUPPORTED` is `TRUE` when ordinary text output is available.
+`TEXT_WIDTH` and `TEXT_HEIGHT` give the text grid size. `TEXT_COLUMNS()`
+gives the width used by text output, which may change on targets with
+more than one text width.
 
 ## Display
 
-To use the portable display mode API, add `@INCLUDE "api/display.cbi"`.
-Available display modes vary by target; the target docs under
-[`targets/`](targets/) list the details.
+Each target supports its own set of display modes. See the target pages
+under [`targets/`](targets/) for the full list.
 
-`DISPLAY(mode)` accepts the portable mode constants listed below. Some
-targets also accept target specific mode constants. When a target accepts
-one, `DISPLAY` switches the hardware mode and updates the active mode
-state used by `GFX_WIDTH`, `GFX_HEIGHT`, `GFX_BPP`,
-`GFX_COLOR_COUNT`, `GFX_PLOT_COLOR_AVAILABLE`, `GFX_ROW_BYTES`, and
-related calls.
-Target specific mode constants are not portable; see the target docs
-before using them.
-Targets without display mode hardware accept `DISPLAY(CELL)` as a
-no-op. Bitmap metadata queries return `0` unless a target display
-provider sets them.
+Along with target specific modes, `DISPLAY(mode)` accepts `CELL`,
+`CELL_MULTICOLOR`, `BITMAP_HIRES`, `BITMAP_LORES`, and
+`BITMAP_MULTICOLOR`. After a successful change, `GFX_WIDTH`,
+`GFX_HEIGHT`, `GFX_BPP`, `GFX_COLOR_COUNT`, `PLOT_COLOR_COUNT`, and
+`GFX_ROW_BYTES` describe the new mode.
 
-Prefer `DISPLAY(target_mode)` over setting a video mode with inline
-assembly. Raw hardware mode changes bypass the active mode state that
-APIs use for clipping, dimensions, color count, and bitmap metadata.
+Use `DISPLAY(mode)` before drawing. Later graphics calls then use the
+right size, coordinates, and colors for that mode.
 
 | Call                                              | What it does                                  |
 | ------------------------------------------------- | --------------------------------------------- |
-| `DISPLAY()`                                       | Switch to the target's default drawable display mode. Returns `1` if accepted, `0` if unavailable. |
-| `DISPLAY(mode)`                                   | Switch to a specific display mode. Returns `1` if accepted, `0` if unsupported. |
-| `DISPLAY_MIXED(mode, text_rows)`                  | Switch to graphics with a bottom text window. `text_rows = 0` requests full screen graphics. Returns `1` if accepted. |
-| `GFX_MODE_COLOR_COUNT(mode)`                      | Portable color-value count for the mode, or `0` when not drawable. |
-| `GFX_HAS_MODE(mode)`                              | `1` if the active target supports the mode.   |
-| `GFX_ROW_BYTES()`                                 | Bytes per bitmap row, or `0` when unavailable.|
+| `DISPLAY()`                                       | Use the target's default drawing mode. Returns `1` on success or `0` when unavailable. |
+| `DISPLAY(mode)`                                   | Use a specific display mode. Returns `1` on success or `0` when unsupported. |
+| `DISPLAY_MIXED(mode, text_first_row, text_rows)`  | Use graphics with one full width text region. Returns `1` on success or `0` when unsupported. |
+| `BACKGROUND_COLOR(color)`                         | Set the target's main background color when supported. |
+| `BORDER_COLOR(color)`                             | Set the display border color when supported. |
+| `GFX_MODE_COLOR_COUNT(mode)`                      | Number of color values the mode can draw, or `0` when it cannot draw graphics. |
+| `GFX_HAS_MODE(mode)`                              | `1` if the target supports the mode.          |
+| `GFX_ROW_BYTES()`                                 | Bytes used by one row of bitmap data, or `0` when unavailable. |
 | `GFX_BITMAP_BASE()`                               | Bitmap memory base, or `0` when unavailable.  |
 | `GFX_PAGE_COUNT()`                                | Number of selectable display pages. Usually `1`. |
 | `GFX_PAGE_BASE(page)`                             | Primary memory base for a display page, or `0` when unavailable. |
-| `GFX_PAGE_SELECT(page)`                           | Select a display page. Returns `1` if accepted. |
+| `GFX_PAGE_SELECT(page)`                           | Select a display page. Returns `1` on success. |
 | `GFX_PAGE_ATTR_BASE(page)`                        | Attribute memory base for a display page, or `0` when unavailable. |
 
-Some targets expose drawable video RAM that is not directly mapped into
-CPU memory. For those modes, `GFX_BITMAP_BASE`, `GFX_PAGE_BASE`, and
-`GFX_PAGE_ATTR_BASE` report the target's native video memory offset, not
-a CPU address. Use `PLOT`, `POINT`, `GFX_CLS`, and target helpers to
-access the surface.
+`BACKGROUND_COLOR` and `BORDER_COLOR` accept target color values,
+including the portable color constants such as `BLACK`, `WHITE`, and
+`BLUE`. Both calls are available on every target. An unsupported call
+does nothing and produces a compile warning.
 
-`DISPLAY_MIXED` uses the same mode constants as `DISPLAY`. When a text
-window is accepted, `GFX_HEIGHT` is the drawable graphics height above
-the bottom text window. `DISPLAY_MIXED_AVAILABLE` is `1` when the target
-supports this form. `DISPLAY_MIXED_VARIABLE_ROWS` is `1` when row counts
-other than `0` and `DISPLAY_MIXED_DEFAULT_ROWS` can be used.
-`DISPLAY_MIXED_MAX_ROWS` is the largest accepted bottom text window.
+| Support value | Meaning |
+| --- | --- |
+| `BACKGROUND_COLOR_SUPPORTED` | `TRUE` when `BACKGROUND_COLOR` changes the display. |
+| `BORDER_COLOR_SUPPORTED` | `TRUE` when `BORDER_COLOR` changes the display border. |
 
-Active mode globals:
+Use these support values with `@IF` or `@REQUIRES` when the color change
+is required.
+
+Do not pass `GFX_BITMAP_BASE`, `GFX_PAGE_BASE`, or `GFX_PAGE_ATTR_BASE`
+to `PEEK` or `POKE` unless the target page says that is supported. Use
+`PLOT`, `POINT`, `GFX_CLS`, and the target's graphics calls for portable
+code.
+
+`DISPLAY_MIXED` uses the same modes as `DISPLAY`. `text_first_row` and
+cell calls use absolute rows in the full text grid, so row `0` is the top
+and `TEXT_HEIGHT - 1` is the bottom. The bitmap keeps its normal graphics
+coordinates, but pixels covered by the text rows are not visible. Passing
+`0` for `text_rows` is the same as `DISPLAY(mode)`. A later `DISPLAY` call
+leaves mixed mode. `DISPLAY_MIXED_SUPPORTED` is `TRUE` when
+`DISPLAY_MIXED` is supported.
+
+The text rows cover the same part of the bitmap. Clear and draw the bitmap
+before writing those text rows. Use row based cell calls only within the
+active text rows. `CELL_CLS` clears only the selected text rows and leaves
+the rest of the bitmap unchanged.
+
+Current mode values:
 
 | Name                                      | What it means                                                |
 | ----------------------------------------- | ------------------------------------------------------------ |
-| `GFX_MODE`                                | Last mode accepted by `DISPLAY`.                             |
-| `GFX_WIDTH` / `GFX_HEIGHT`                | Size of the active drawing space.                            |
+| `GFX_MODE`                                | Last mode set by `DISPLAY`.                                  |
+| `GFX_WIDTH` / `GFX_HEIGHT`                | Size of the current drawing area.                            |
 | `GFX_BYTE_W` / `GFX_BYTE_H`               | Pixels per bitmap byte, or `0` outside bitmap modes.         |
-| `GFX_BPP`                                 | Bits per stored pixel, or `0` outside packed bitmap modes.   |
-| `GFX_COLOR_COUNT`                         | Color-value count for the active mode.                       |
-| `GFX_COLOR_ATTR_W` / `GFX_COLOR_ATTR_H`   | Color attribute block size in pixels. Usually `1`.           |
-| `GFX_PLOT_COLOR_AVAILABLE`               | `1` when three-argument `PLOT` can apply its color in the active mode. |
-
-Modes: `CELL`, `CELL_MULTICOLOR`,
-`BITMAP_HIRES`, `BITMAP_LORES`, and
-`BITMAP_MULTICOLOR`.
+| `GFX_BPP`                                 | Bits used for each pixel in bitmap data, or `0` outside bitmap modes. |
+| `GFX_COLOR_COUNT`                         | Number of color values in the current mode.                  |
+| `PLOT_COLOR_COUNT`                        | Number of colors selectable by `PLOT(x, y, color)`, or `0` when its color is ignored. |
+| `GFX_COLOR_ATTR_W` / `GFX_COLOR_ATTR_H`   | Width and height of an area that shares one color setting. Usually `1`. |
 
 ## Graphics
-
-To use the portable graphics drawing API, add `@INCLUDE "api/graphics.cbi"`.
-It includes the display API automatically. Available drawing surfaces
-vary by target.
 
 | Call                                              | What it does                                  |
 | ------------------------------------------------- | --------------------------------------------- |
 | `PLOT(x, y)` / `PLOT(x, y, color)` / `UNPLOT(x, y)` | Set/clear a point. Color plot uses black background and falls back to `PLOT(x, y)` when color is unavailable. |
-| `POINT(x, y)`                                     | Read a point. `0` means background/off; nonzero values are mode-specific. |
-| `LINE(x0, y0, x1, y1)`                            | Arbitrary line.                               |
+| `POINT(x, y)`                                     | Read a point. `0` means background/off; other values depend on the mode. |
+| `LINE(x0, y0, x1, y1)`                            | Draw a line between any two points.           |
 | `HLINE(x0, x1, y)` / `UNHLINE(x0, x1, y)`         | Horizontal span. Endpoints may be in either order. |
 | `VLINE(x, y0, y1)` / `UNVLINE(x, y0, y1)`         | Vertical span. Endpoints may be in either order. |
 | `BOX(x0, y0, x1, y1)` / `FILLBOX(x0, y0, x1, y1)` | Outline / filled rectangle.                   |
 | `CIRCLE(xc, yc, r)` / `CIRCLE_E(xc, yc, rx, ry)`  | Circle / ellipse.                             |
-| `GFX_CLS()`                                       | Clear the active graphics surface.            |
+| `RGB(r, g, b)`                                    | Make a portable `$00RRGGBB` color value using channels from 0 to 255. |
+| `PALETTE_SET(index, color)`                       | Change how pixels of value `index` look using a standard color or `RGB` value. |
+| `PALETTE_RESET()`                                 | Restore the palette a graphics mode starts with. |
+| `GFX_CLS()`                                       | Clear the current graphics screen.            |
+| `GFX_SWAP()`                                      | Make the finished graphics buffer visible.    |
 | `GFX_COLOR(fg)` / `GFX_COLOR(fg, bg)`             | Set colors. Single arg call uses black background. |
-| `GFX_CAN_PLOT(mode)`                              | `1` if `PLOT`/`LINE`-style drawing is supported in the mode. |
+| `GFX_PRINT(x, y, text$, transparent)`             | Draw 8x8 text on the bitmap screen.            |
+| `GFX_PRINT_CENTER_X(y, text$, transparent)`       | Draw that text centered across the bitmap screen. |
+| `GFX_CAN_PLOT(mode)`                              | `1` if calls such as `PLOT` and `LINE` work in the mode. |
 | `GFX_CAN_POINT(mode)`                             | `1` if `POINT` readback is supported in the mode. |
-| `GFX_BLIT(addr, cx, py, w)`                       | Copy pre-rendered bitmap bytes into `w` adjacent 8x8 cells. |
+| `GFX_BLIT(addr, cx, py, w)`                       | Copy prepared bitmap bytes into `w` adjacent 8x8 cells. |
 | `GFX_CELL_COLOR_ATTR(cx, cy, fg, bg)`             | Set one graphics color cell's attributes.     |
 | `GFX_CELL_COLOR_ATTR_SPAN(cx, cy, w, fg, bg)`     | Set attributes for `w` color cells in a row.  |
 | `GFX_CELL_COLOR_ATTR_ROW(cy, fg, bg)`             | Set attributes for a whole color cell row.    |
 
-Coordinates are in the current graphic mode's space (pixels in bitmap modes, hardware cells in low-res).
+Coordinates use the current graphics mode: pixels in bitmap modes and
+cells in modes that use cell coordinates.
 
-`GFX_PLOT_COLOR_AVAILABLE` is active display state, not a compile-time
-constant. Check it after `DISPLAY` before using three-argument `PLOT`.
-`GFX_COLOR_ATTR_W` and `GFX_COLOR_ATTR_H` report whether that color is
-per pixel or shared by a block. Targets with no color-capable plotting
-mode also warn when three-argument `PLOT` is used.
+`GFX_PRINT` and `GFX_PRINT_CENTER_X` use the included 8x8 font and the
+current `GFX_COLOR`. The character shape uses the foreground color.
+`FALSE` fills the rest of its 8x8 area with the background color, while
+`TRUE` leaves those pixels unchanged. Lowercase letters use their uppercase
+shapes, and unsupported characters draw as spaces. Use these calls in a mode
+where `GFX_CAN_PLOT` returns `1`.
+`GFX_PRINT_CENTER_X` centers within `GFX_WIDTH`. Neither call changes
+the shapes used by the cell display.
 
-`GFX_BLIT` draws pre-rendered bitmap data at cell granularity: `cx` is a
-cell column, `py` a pixel row that must be a multiple of 8, and the
-source holds `w` cells of 8 bytes each in cell-column major order (all
-8 rows of the leftmost cell, then the next cell to its right). Bytes
-are in the active bitmap mode's native pixel format and nothing is
-clipped. Smooth sub-cell motion is an application technique: keep
-pre-shifted copies of the pattern and blit the aligned window that
-contains it. `GFX_BLIT_AVAILABLE` is `1` on targets that implement it;
-elsewhere the call is a no-op.
+`RGB` returns a `U32` in `$00RRGGBB` format.
 
-`GFX_CELL_COLOR_ATTR` and its span/row variants set color attributes on
-the active bitmap surface. A graphics color cell is one block sized by
-`GFX_COLOR_ATTR_W` and `GFX_COLOR_ATTR_H`. These calls are distinct from
-the text API's `CELL_COLOR`, which colors the text screen. On targets
-without writable graphics color cells (`GFX_CELL_COLOR_ATTR_AVAILABLE`
-is `0`) the single cell and row calls do nothing.
+```basic
+CONST SKY_BLUE AS U32 = RGB(48, 160, 255)
+
+PALETTE_SET 1, SKY_BLUE
+PALETTE_SET 2, RGB(255, 96, 32)
+```
+
+`PALETTE_SUPPORTED` is `TRUE` when palette entries can be changed, and
+`PALETTE_SIZE` tells you how many entries there are.
+`index` is the color number used by `PLOT` and `GFX_COLOR`.
+
+`PALETTE_RGB_SUPPORTED` is `TRUE` when `PALETTE_SET index, RGB(r, g, b)`
+can use any RGB color. If the target only offers a fixed set of colors,
+an RGB palette write does nothing instead of guessing the nearest one.
+Standard color values still use `PALETTE_SET`.
+
+`GFX_BUFFERING` tells you what `GFX_SWAP` does:
+
+- `GFX_BUFFERING_NONE`: graphics are not buffered, and calling
+  `GFX_SWAP` is a compile error.
+- `GFX_BUFFERING_COPY`: `GFX_SWAP` copies your drawing to the screen.
+  Your drawing buffer keeps its contents.
+- `GFX_BUFFERING_FLIP`: `GFX_SWAP` exchanges the visible and drawing
+  buffers. You then draw into an older frame and must redraw anything
+  you still need.
+
+Check `GFX_BUFFERING` before calling `GFX_SWAP`.
+
+The three argument `PLOT` falls back to `PLOT(x, y)` when
+`PLOT_COLOR_COUNT` is `0`. `DISPLAY` updates this value for the selected
+mode. It can differ from `GFX_COLOR_COUNT` when the display supports
+multiple colors but `PLOT` cannot select one for each call.
+
+`GFX_COLOR_ATTR_W` and `GFX_COLOR_ATTR_H` tell you whether a color
+belongs to one pixel or a larger block.
+
+`GFX_BLIT` copies prepared bitmap data in 8x8 cells. `cx` is the cell
+column, and `py` is a pixel row that must be a multiple of 8. The source
+contains `w` cells with 8 bytes per cell: all 8 rows of the leftmost
+cell, followed by all 8 rows of the next cell. The bytes must already
+use the current bitmap mode's format. `GFX_BLIT` does not clip.
+
+For movement smaller than one cell, keep shifted copies of the image and
+blit the aligned cell window that contains it. `GFX_BLIT_SUPPORTED` is
+`1` when the target supports `GFX_BLIT`. Otherwise it does nothing.
+
+`GFX_CELL_COLOR_ATTR` and its span and row forms set color attributes on
+the current bitmap. One graphics color cell is
+`GFX_COLOR_ATTR_W` by `GFX_COLOR_ATTR_H` pixels. These calls are
+separate from `CELL_COLORS` and `CELL_COLOR`, which change text screen colors. When
+`GFX_CELL_COLOR_ATTR_SUPPORTED` is `FALSE`, these calls do nothing.
 
 Portable color constants:
 
@@ -157,11 +215,147 @@ Portable color constants:
 `LIGHT_RED` `DARK_GRAY` `GRAY`
 `LIGHT_GREEN` `LIGHT_BLUE` `LIGHT_GRAY`
 
-`GFX_STD_COLORS` is the same 16 colors as a `U8` const array. Use
-`LEN(GFX_STD_COLORS)` for its element count.
+`GFX_STD_COLORS` holds these 16 colors in a `U8` `CONST` array.
+`GFX_STD_COLOR_LAST` is its last valid index and follows `ARRAY_BASE`.
+Use `LEN(GFX_STD_COLORS)` for the element count.
 
-`GFX_NATIVE_COLOR(idx)` returns the target specific byte for an index
-in the active mode.
+`GFX_NATIVE_COLOR(idx)` returns the target color value for an index in
+the current mode.
+
+## Layer
+
+The layer API selects screen layers used for text, cells, and tiles. Use
+it when a target has more than one layer.
+
+```basic
+@REQUIRES LAYER_SUPPORTED @ELSE "layer support is required"
+
+LAYER_SELECT LAYER_0
+CLS
+PRINT "MAIN LAYER"
+
+IF LAYER_COUNT > 1 THEN
+	LAYER_SELECT LAYER_1
+	LAYER_WRITE_PRIORITY LAYER_1, LAYER_PRIORITY_HIGH
+	PRINT "FRONT LAYER"
+ENDIF
+```
+
+| Call | What it does |
+| --- | --- |
+| `LAYER_SELECT(layer)` | Direct later text, cell, and tile writes to a layer. |
+| `LAYER_SHOW(layer)` | Make a layer visible without changing its contents. |
+| `LAYER_HIDE(layer)` | Hide a layer without changing its contents. |
+| `LAYER_WRITE_PRIORITY(layer, priority)` | Set the priority used by later writes to a layer. |
+
+`LAYER_SELECT` affects later `PRINT`, `CLS`, cell drawing, and tile
+map writes. It does not clear, show, hide, or move the selected layer.
+Selecting a layer does not select a palette. Use the SCROLL API to move
+screen content.
+
+Write priority starts at `LAYER_PRIORITY_LOW`. Use
+`LAYER_PRIORITY_HIGH` for later cells or tiles that should use the
+target's high priority setting. Changing write priority does not change
+cells or tiles already on the layer.
+
+| Constant | Meaning |
+| --- | --- |
+| `LAYER_SUPPORTED` | `TRUE` when the target has portable layer support. |
+| `LAYER_COUNT` | Number of available screen layers. |
+| `LAYER_VISIBILITY_SUPPORTED` | `LAYER_SHOW` and `LAYER_HIDE` are supported. |
+| `LAYER_WRITE_PRIORITY_SUPPORTED` | `LAYER_WRITE_PRIORITY` is supported. |
+| `LAYER_0` / `LAYER_1` | Layer numbers. Only use layers below `LAYER_COUNT`. |
+| `LAYER_PRIORITY_LOW` / `LAYER_PRIORITY_HIGH` | Portable write priority values. |
+
+When `LAYER_VISIBILITY_SUPPORTED` or `LAYER_WRITE_PRIORITY_SUPPORTED` is `FALSE`, its
+calls do nothing. Check these values when a program depends on layer
+visibility or write priority.
+
+## Scrolling
+
+The SCROLL API moves a cell area in small steps. When a new row or
+column comes into view, the program fills it before showing the new
+position.
+
+On a target with screen layers, call `LAYER_SELECT` before `SCROLL_BEGIN` or
+`SCROLL_BEGIN_REGION`. Scrolling stays on that layer until the next begin call,
+so later writes can use a separate fixed layer without moving it.
+
+Targets with `SCROLL_REGION_SUPPORTED` can leave cells outside the scrolling
+area fixed. Region coordinates use absolute cell positions. Coordinates passed
+to `SCROLL_CELL_PUTC` start at the top left of the scrolling area. Use normal
+cell calls for fixed headers and status areas.
+
+If only row regions are available, use `0` for `x` and `TEXT_WIDTH` for
+`columns`. If only column regions are available, use `0` for `y` and
+`TEXT_HEIGHT` for `rows`.
+
+```basic
+@REQUIRES SCROLL_REGION_ROWS_SUPPORTED @ELSE "fixed rows are required"
+
+CELL_PRINT 0, 0, "FIXED TITLE"
+SCROLL_BEGIN_REGION 0, 1, TEXT_WIDTH, TEXT_HEIGHT - 1, 0, 8
+```
+
+```basic
+@REQUIRES SCROLL_CELL_SUPPORTED @ELSE "cell scrolling is required"
+
+SCROLL_BEGIN U8(0), U8(8)
+
+FILL = SCROLL_MOVE(I8(0), I8(1))
+
+IF (FILL & SCROLL_FILL_BOTTOM) <> U8(0) THEN
+	DRAW_NEW_ROW SCROLL_BUFFER_ROWS - U8(1)
+ENDIF
+
+EDGES = SCROLL_PRESENT
+```
+
+Positive X moves the view right and exposes the right edge. Positive Y moves
+the view down and exposes the bottom edge. Negative movement exposes the
+opposite edge. Move one axis and cross at most one cell boundary per call.
+
+At a cell boundary, `SCROLL_MOVE` returns a `SCROLL_FILL_*` flag telling you
+which outer edge to fill. Write that edge with `SCROLL_CELL_PUTC` before
+calling `SCROLL_PRESENT`. The outer coordinates are column `0`, column
+`SCROLL_BUFFER_COLUMNS - 1`, row `0`, and row `SCROLL_BUFFER_ROWS - 1`.
+
+`SCROLL_PRESENT` shows the prepared position and returns the matching
+`SCROLL_EDGE_*` flag when a cell boundary is now visible. Update the
+program's scroll position from that result rather than the earlier fill
+request.
+
+| Name | What it does |
+| --- | --- |
+| `SCROLL_BEGIN(step_x, step_y)` | Start cell scrolling. Use `8, 8` for normal 8 pixel cells. A zero step disables that axis. |
+| `SCROLL_BEGIN_REGION(x, y, columns, rows, step_x, step_y)` | Start scrolling inside a cell region while leaving cells outside it fixed. |
+| `SCROLL_CELL_PUTC(col, row, code)` | Write one character code in the scrolling area. |
+| `SCROLL_MOVE(dx, dy)` | Prepare relative movement and return a `SCROLL_FILL_*` edge when new cells are needed. |
+| `SCROLL_PRESENT()` | Show the prepared movement and return a `SCROLL_EDGE_*` boundary that is now visible. |
+| `SCROLL_BUFFER_COLUMNS` / `SCROLL_BUFFER_ROWS` | Size of the cell area available for scrolling content. |
+| `SCROLL_VIEW_COLUMNS` / `SCROLL_VIEW_ROWS` | Visible cell area while scrolling is active. |
+| `SCROLL_X_GRANULARITY` / `SCROLL_Y_GRANULARITY` | Smallest movement in target pixels for the current display mode. `0` means the axis is unavailable. |
+| `SCROLL_FILL_LEFT` / `SCROLL_FILL_RIGHT` | The matching outer column must be filled. |
+| `SCROLL_FILL_TOP` / `SCROLL_FILL_BOTTOM` | The matching outer row must be filled. |
+| `SCROLL_EDGE_LEFT` / `SCROLL_EDGE_RIGHT` | The matching column boundary was shown. |
+| `SCROLL_EDGE_TOP` / `SCROLL_EDGE_BOTTOM` | The matching row boundary was shown. |
+
+| Support value | Meaning |
+| --- | --- |
+| `SCROLL_SUPPORTED` | `TRUE` when the target has portable scrolling. |
+| `SCROLL_CELL_SUPPORTED` | Cell screens can scroll. |
+| `SCROLL_CELL_COLOR_SUPPORTED` | Each scrolling cell can keep its own color. When `FALSE`, use shared colors such as `CELL_COLORS`. |
+| `SCROLL_BITMAP_SUPPORTED` | Bitmap screens can scroll. |
+| `SCROLL_X_SUPPORTED` / `SCROLL_Y_SUPPORTED` | The corresponding axis is supported. |
+| `SCROLL_REGION_SUPPORTED` | The target supports a scrolling cell region. |
+| `SCROLL_REGION_ROWS_SUPPORTED` | The region may leave fixed rows above or below it. |
+| `SCROLL_REGION_COLUMNS_SUPPORTED` | The region may leave fixed columns beside it. |
+
+Movement size may change after `DISPLAY`, so read the granularity values
+after choosing a mode. The target pages list the available screen types,
+axes, colors, and regions. The
+[portable scroll example](../examples/__portable__/scroll.cbs) checks
+the available axes.
 
 ## Misc
 
@@ -170,167 +364,310 @@ in the active mode.
 | `BEEP(duration)` | Play a target specific tone. Duration units are target specific. |
 | `DELAY(n)`       | Pause for roughly target specific units.                         |
 
+See the target page for the units used by `BEEP` and `DELAY`.
+
 ## Sound
 
-The sound interface has a portable note layer and a native target layer.
-`PLAY_NOTE` and the other note calls are portable: `VOICE` is zero based,
-`NOTE` uses the `NOTE_*` constants from `NOTE_C2` through `NOTE_B6`, and
-volume uses `0` through `SOUND_VOLUME_MAX`. `NOTE_REST` silences or
-reserves the voice.
+The sound API plays notes in a form that works across targets. `VOICE`
+starts at zero. `NOTE` uses the `NOTE_*` constants from `NOTE_C2`
+through `NOTE_B6`, and volume runs from `0` through `SOUND_VOLUME_MAX`.
+`SHAPE` chooses a tone, pulse, noise, or another supported sound.
+`NOTE_REST` either silences a voice or reserves it for a timed rest.
 
-`SOUND` and `SOUND_RAW` are native target calls. Their four argument
-form is shared, but the meaning and valid range of every argument are
-target specific. Depending on the target, the second argument may be a
-frequency, period, divider, or pitch value, while the third may select a
-waveform, control value, or distortion. These calls start or update
-sound immediately and do not include a duration. See the active target's
-documentation for its exact values.
-
-`SOUND_FREQ` also returns a target specific representation. Some targets
-pack additional sound control into its `U16` result, so treat it as an
-opaque value for that target rather than a frequency in common units.
+For sounds unique to one machine, see the sound and chip sections on its
+target page.
 
 | Name | What it does |
 | --- | --- |
-| `SOUND_AVAILABLE` | `1` when the target provides sound. |
+| `SOUND_SUPPORTED` | `TRUE` when the target supports sound. |
+| `SOUND_PRESENT` | `TRUE` when sound output is currently available. |
 | `SOUND_VOICES` | Number of target sound voices. |
 | `SOUND_VOLUME_MAX` | Highest volume accepted by the portable note calls. |
-| `SOUND_HAS_ENVELOPE` | `1` when target sound exposes envelopes. |
-| `SOUND_HAS_FILTER` | `1` when target sound exposes a filter. |
-| `SOUND_HAS_PULSEWIDTH` | `1` when target sound exposes pulse width. |
-| `SOUND_HAS_SHAPE` | `1` when target sound exposes waveform or noise shape selection. |
-| `SOUND_HAS_NOISE` | `1` when target sound exposes a noise shape or noise channel. |
-| `SOUND_HAS_NATIVE` | `1` when target sound uses native frequency values. |
+| `SOUND_VOLUME_LOW` | Portable low volume scaled for the target. |
+| `SOUND_VOLUME_MEDIUM` | Portable medium volume scaled for the target. |
+| `SOUND_VOLUME_HIGH` | Portable high volume scaled for the target. |
+| `SOUND_SHAPE_SUPPORTED` | `TRUE` when the target can select a waveform or noise shape. |
+| `SOUND_NOISE_SUPPORTED` | `TRUE` when the target has a noise shape or noise channel. |
 | `SOUND_VOLUME_MODEL` | Volume behavior, one of the `SOUND_VOLUME_MODEL_*` values. |
 | `SOUND_NOTE_MIN` | Lowest MIDI note number supported by target sound. |
 | `SOUND_NOTE_MAX` | Highest MIDI note number supported by target sound. |
-| `SOUND_FREQ(note)` | Convert a note constant to the target's native sound value. |
-| `SOUND(voice, value, control, volume)` | Start or update sound using target specific arguments. |
-| `SOUND_RAW(voice, value, control, volume)` | The same native operation as `SOUND`, with an explicit raw name. |
 | `SOUND_OFF(voice)` | Stop one sound voice. |
-| `SOUND_ALL_OFF()` | Stop all target sound. Pure CrustyBasic also accepts `SILENCE`. |
+| `SOUND_ALL_OFF()` | Stop all target sound. Pure crustyBASIC also accepts `SILENCE`. |
 | `PLAY_NOTE(voice, note, volume)` | Start a note immediately. |
-| `PLAY_NOTE_SHAPE(voice, note, shape, volume)` | Start a note immediately with a portable shape. |
-| `PLAY_NOTE_FOR(voice, note, volume, duration)` | Play a blocking note for target delay units. |
+| `PLAY_NOTE_SHAPE(voice, note, shape, volume)` | Play a note with the chosen kind of sound. |
+| `PLAY_NOTE_FOR(voice, note, volume, duration)` | Play a note for a duration. |
+| `PLAY_NOTE_SHAPE_FOR(voice, note, shape, volume, duration)` | Play a note with the chosen kind of sound for a duration. |
 
-Timed sound schedules a voice and returns immediately where the target
-supports it. Durations use the same units as `TICKS`: `TICKS_HZ` ticks
-per second. The scheduler uses its own counters, so `TICKS_RESET` does
-not affect active timed sounds.
+`SOUND_VOLUME_MODEL` describes how volume is shared:
+
+- `SOUND_VOLUME_MODEL_NONE` means volume cannot be changed.
+- `SOUND_VOLUME_MODEL_MASTER` means all voices share one volume.
+- `SOUND_VOLUME_MODEL_GROUP` means groups of voices share a volume.
+- `SOUND_VOLUME_MODEL_VOICE` means each voice has its own volume.
+
+Timed sound starts a voice and returns immediately. Durations use the
+same units as `TICKS`, with `TICKS_HZ` ticks per second. Some targets
+advance timed sound automatically; others need regular
+`SOUND_TIMED_SERVICE` calls. `TICKS_RESET` does not affect timed notes.
 
 | Name | What it does |
 | --- | --- |
-| `SOUND_TIMED_AVAILABLE` | `1` when timed sound scheduling is available. |
-| `SOUND_TIMED_FREE_RUNNING` | `1` when timed sound advances from an interrupt or OS clock. |
-| `SOUND_TIMED_VOICES` | Number of schedulable timed voices. |
-| `SOUND_TIMED_INIT()` | Enable the timed sound scheduler. Timed play calls do this lazily. |
-| `SOUND_TIMED_UNINSTALL()` | Disable the scheduler and stop timed voices. |
-| `SOUND_TIMED_SERVICE()` | Advance non-free-running schedulers. No-op when `SOUND_TIMED_FREE_RUNNING = 1`. |
-| `SOUND_TIMED_NOTE(voice, note, volume, ticks)` | Schedule a note for `ticks`. |
-| `SOUND_TIMED_NOTE_SHAPE(voice, note, shape, volume, ticks)` | Schedule a shaped note for `ticks`. |
-| `SOUND_TIMED_RAW(voice, freq, control, volume, ticks)` | Schedule target specific raw sound for `ticks`. |
-| `SOUND_TIMED_REST(voice, ticks)` | Reserve a voice silently for `ticks`. |
-| `SOUND_TIMED_BUSY(voice)` | `1` while a voice has a note or rest scheduled. |
+| `SOUND_TIMED_SUPPORTED` | `TRUE` when timed notes are supported. |
+| `SOUND_TIMED_FREE_RUNNING` | `TRUE` when timed notes advance automatically. |
+| `SOUND_TIMED_VOICES` | Number of voices that can play timed notes. |
+| `SOUND_TIMED_INIT()` | Start timed sound. Timed play calls do this when needed. |
+| `SOUND_TIMED_UNINSTALL()` | Stop timed sound and silence its voices. |
+| `SOUND_TIMED_SERVICE()` | Continue timed sound when it does not advance automatically. |
+| `SOUND_TIMED_NOTE(voice, note, volume, ticks)` | Play a note for `ticks`. |
+| `SOUND_TIMED_NOTE_SHAPE(voice, note, shape, volume, ticks)` | Play a shaped note for `ticks`. |
+| `SOUND_TIMED_REST(voice, ticks)` | Keep a voice silent for `ticks`. |
+| `SOUND_TIMED_BUSY(voice)` | `1` while a timed note or rest is active on the voice. |
 | `SOUND_TIMED_REMAINING(voice)` | Remaining ticks for the voice. |
 | `SOUND_TIMED_WAIT(voice)` | Wait until the voice is no longer busy. |
 | `SOUND_TIMED_WAIT_ALL()` | Wait until all timed voices are no longer busy. |
 | `SOUND_TIMED_OFF(voice)` | Cancel and silence one timed voice. |
 | `SOUND_TIMED_OFF_ALL()` | Cancel and silence all timed voices. |
 
-Use `@IF SOUND_TIMED_AVAILABLE THEN` or
-`@REQUIRES SOUND_TIMED_AVAILABLE` when a program depends on scheduled
-sound. On targets without a timed provider these calls compile as no-ops.
+Use `@IF SOUND_TIMED_SUPPORTED THEN` or
+`@REQUIRES SOUND_TIMED_SUPPORTED` when a program needs timed sound. On
+targets without timed sound support, these calls do nothing.
+
+## Audio
+
+The AUDIO API loads and plays one prepared audio asset, such as a
+converted WAV file. One audio asset can be loaded at a time. Loading
+is separate from playback, so a program can load music during a loading
+screen and start it later:
+
+```basic
+@INCLUDE_AUDIO TITLE "assets/title.wav"
+
+OK = AUDIO_LOAD(ADDR TITLE_AUDIO)
+
+' finish setup or wait for input
+
+OK = AUDIO_PLAY
+```
+
+Calls:
+
+| Call | What it does |
+| --- | --- |
+| `AUDIO_LOAD(src_addr)` | Load embedded CBA audio without playing it. Returns `1` on success. |
+| `AUDIO_LOAD(path$)` | Load a CBA file or supported target audio file. Returns `1` on success. |
+| `AUDIO_PLAY` | Start the loaded asset's default song from its beginning. Returns `1` on success. |
+| `AUDIO_PLAY(song)` | Start a one based song number from its beginning. The song number is not range checked. |
+| `AUDIO_STOP` | Stop playback and release the sound output, but keep the asset loaded for replay. |
+| `AUDIO_UNLOAD` | Stop playback and forget the loaded asset. |
+| `AUDIO_SERVICE` | Continue `AUDIO_PLAYBACK_FRAME_SERVICE` playback for one frame. Does nothing for automatic playback or when stopped. |
+
+Calling `AUDIO_LOAD` again stops and unloads the current asset first. If
+the new load fails, no asset remains loaded.
+
+`AUDIO_PLAY` only starts the loaded audio, so it never loads a file from
+storage.
+
+Audio support values:
+
+| Name | What it means |
+| --- | --- |
+| `AUDIO_SUPPORTED` | `TRUE` when AUDIO is available for the chosen target and system. |
+| `AUDIO_PLAYBACK_MODEL` | `AUDIO_PLAYBACK_NONE`, `AUDIO_PLAYBACK_AUTOMATIC`, or `AUDIO_PLAYBACK_FRAME_SERVICE`. Automatic playback continues by itself. Frame service playback needs one `AUDIO_SERVICE` call after each completed video frame. |
+| `AUDIO_FILE_SUPPORTED` | `AUDIO_LOAD(path$)` accepts prepared CBA files. |
+| `AUDIO_TARGET_FILE_SUPPORTED` | `AUDIO_LOAD(path$)` also accepts the target file types listed on its target page. |
+| `AUDIO_SOUND_SHARED` | `TRUE` when Sound API calls can be used during AUDIO playback. |
+
+You can call `AUDIO_SERVICE` in every game loop. It does nothing on
+targets with automatic playback:
+
+```basic
+WHILE RUNNING
+	FRAME_WAIT
+	AUDIO_SERVICE
+
+	' game logic
+WEND
+```
+
+When `AUDIO_SOUND_SHARED` is `FALSE`, AUDIO has exclusive use of sound output
+from a successful `AUDIO_PLAY` until `AUDIO_STOP` or `AUDIO_UNLOAD`. Do
+not use notes, timed sounds, or target specific sound calls during that
+time. If timed sound is active, call `SOUND_TIMED_UNINSTALL` before
+`AUDIO_PLAY` and `SOUND_TIMED_INIT` after AUDIO stops.
+
+### `@INCLUDE_AUDIO` and CBA (crustyBASIC Audio) files
+
+```basic
+@INCLUDE_AUDIO TITLE "assets/title.wav"
+@INCLUDE_AUDIO TUNE "assets/tune.sid"
+@INCLUDE_AUDIO BOSS "BOSS.CBA" "assets/boss.wav"
+```
+
+The first form creates `CONST TITLE_AUDIO(...) AS U8 = ...`. The third
+also creates `CONST BOSS_AUDIO_FILE = "BOSS.CBA"` and packages
+`BOSS.CBA` with the program. The program can load that file with
+`AUDIO_LOAD(BOSS_AUDIO_FILE)`. The embedded array and packaged file
+contain the same prepared CBA audio. crustyBASIC adjusts the packaged
+filename to suit the target.
+
+The source can be an audio file such as WAV or SID. crustyBASIC
+recognizes it by its contents, converts it to CBA, and makes sure the
+target can play it. See the `## Audio` section on the target's page for
+the formats it accepts.
+
+Embedded audio is loaded as CBA data, not as the original WAV or SID.
+There are two ways to prepare and embed it:
+
+- `@INCLUDE_AUDIO TITLE "assets/title.wav"` converts the source to CBA,
+  embeds it as `TITLE_AUDIO`, and checks it for the target. Load it with
+  `AUDIO_LOAD(ADDR TITLE_AUDIO)`.
+- `cb-audio --cba` converts the source to a CBA file beforehand. Embed
+  that file unchanged with `@INCLUDE_BIN TITLE, "TITLE.CBA"`, then load
+  it with `AUDIO_LOAD(ADDR TITLE)`.
+
+`@INCLUDE_BIN` does not convert files. If it is given a WAV or SID file,
+the embedded bytes are still WAV or SID data and `AUDIO_LOAD(ADDR ...)`
+rejects them.
+
+`@INCLUDE_AUDIO` also accepts an existing CBA file. crustyBASIC checks
+that it works with the current target and uses it unchanged.
+`@INCLUDE_AUDIO` cannot be used inside `@BANK`. An embedded CBA file
+larger than the 65535 byte `CONST` data limit is a compile error.
+
+You do not need a directive when the program chooses the path. Put the
+CBA or supported target file on its disk or other storage:
+
+```basic
+PATH$ = "LEVEL3.CBA"
+OK = AUDIO_LOAD(PATH$)
+```
+
+A CBA file contains audio prepared for one target. Use `@INCLUDE_AUDIO`
+or `cb-audio` to create one.
+
+Converter usage:
+
+```sh
+tools/bin/cb-audio --target TARGET --region REGION_NTSC --name TITLE input.wav -o title.cbi
+tools/bin/cb-audio --target TARGET --region REGION_NTSC --cba input.wav -o TITLE.CBA
+```
+
+`--region` defaults to `REGION_NTSC`. Sources such as WAV that do not
+depend on a region use region `0`. The `--cba` form writes a CBA file.
+The `--name` form writes a `.cbi` include containing `TITLE_AUDIO`.
+
+`--target` takes a target or system name. A target name uses its default
+system. Use the system name when audio works on only some systems for a
+target.
+
+See the `## Audio` section in each supported target page under
+[`targets/`](targets/) for its source formats, playback model, and
+storage options. On targets without AUDIO support,
+`AUDIO_PLAYBACK_MODEL` is `AUDIO_PLAYBACK_NONE`, `AUDIO_SUPPORTED` is
+`FALSE`, and `AUDIO_LOAD` and `AUDIO_PLAY` return `0`. The other calls do
+nothing.
 
 ## Timing
 
 | Name                    | What it does                                                    |
 | ----------------------- | --------------------------------------------------------------- |
-| `TIMER_TYPE`            | Timer source kind, one of the `TIMER_*` values below.           |
-| `TIMER_AVAILABLE`       | `1` when `TIMER_TYPE <> TIMER_NONE`, otherwise `0`.             |
-| `TIMER_HIGH_RES`        | `1` for sub-frame raw ticks, `0` for coarse target ticks.       |
+| `TIMER_TYPE`            | Timer kind, one of the `TIMER_*` values in this table.          |
+| `TIMER_SUPPORTED`       | `TRUE` when `TIMER_TYPE <> TIMER_NONE`, otherwise `FALSE`.       |
+| `TIMER_HIGH_RES`        | `TRUE` when the timer is more precise than one display frame.    |
 | `TIMER_START()`         | Start or reset the elapsed timer.                               |
-| `TIMER_STOP()`          | Stop the timer and store elapsed ticks in `TIMER_HI:TIMER_LO`.  |
+| `TIMER_STOP()`          | Stop the timer and store the elapsed count in `TIMER_HI:TIMER_LO`. |
 | `TIMER_HI`              | High 16 bits of the elapsed tick count.                         |
 | `TIMER_LO`              | Low 16 bits of the elapsed tick count.                          |
-| `TIMER_NONE`            | No elapsed timer provider.                                      |
-| `TIMER_FREE_RUNNING_HW` | `TIMER_START` samples a free running hardware counter.          |
-| `TIMER_FREE_RUNNING_SW` | `TIMER_START` samples a free running software or ROM counter.   |
-| `TIMER_START_STOP_HW`   | `TIMER_START` starts a hardware counter for measurement.        |
-| `TIMER_START_STOP_SW`   | `TIMER_START` starts a software counter for measurement.        |
+| `TIMER_NONE`            | No elapsed timer.                                               |
+| `TIMER_FREE_RUNNING_HW` | The target provides a timer that is always running.              |
+| `TIMER_FREE_RUNNING_SW` | The target's system time is always running.                       |
+| `TIMER_START_STOP_HW`   | The target provides a timer used only while measuring.           |
+| `TIMER_START_STOP_SW`   | The target measures system time between start and stop.          |
 
-Raw tick units are target specific. Compare `TIMER_HI` first, then
-`TIMER_LO`; lower elapsed ticks means faster. Use
-`@IF TIMER_TYPE <> TIMER_NONE THEN` when a program needs a timer
-fallback.
+Timer units differ by target. Compare `TIMER_HI` first and then
+`TIMER_LO`; fewer ticks means a faster result on the same target. Check
+`TIMER_TYPE <> TIMER_NONE` before relying on the timer.
 
 ## Frames
 
-Frame pacing is a runtime API: each target provides its vsync wait,
-and the constants below gate support.
+Use the frame API to keep animation in step with the display.
 
 | Name                        | What it does                                                  |
 | --------------------------- | ------------------------------------------------------------- |
 | `FRAME_WAIT()`              | Block until the next frame and advance `FRAME_COUNTER`.       |
 | `FRAME_WAIT(count)`         | Wait `count` frames.                                          |
-| `FRAME_COUNTER`             | `U16` frame count advanced by `FRAME_WAIT` or an installed frame provider. |
-| `FRAME_AVAILABLE`           | `1` when the target has a frame provider.                     |
-| `FRAME_VBI_AVAILABLE`       | `1` when the target has a vector hookable VBI.                |
-| `FRAME_INSTALL_AVAILABLE`   | `1` when `FRAME_INSTALL` can run a per-frame hook.            |
-| `FRAME_INSTALL_INTERRUPT`   | `1` when the installed hook runs from an interrupt.           |
-| `FRAME_INSTALL_SYNTHESIZED` | `1` when the installed hook runs during `FRAME_WAIT`.         |
-| `FRAME_INSTALL(addr)`       | Install a PROC address to run once per frame.                 |
-| `FRAME_UNINSTALL()`         | Remove the installed per-frame hook.                          |
+| `FRAME_DELAY(count)`        | Wait `count` frames and keep displays that need regular drawing active. |
+| `FRAME_COUNTER`             | `U16` frame count advanced by `FRAME_WAIT` or automatic frame timing. |
+| `FRAME_SUPPORTED`           | `TRUE` when the target can wait for display frames.            |
+| `FRAME_VBI_SUPPORTED`       | `TRUE` when frame callbacks can run between displayed frames.  |
+| `FRAME_INSTALL_SUPPORTED`   | `TRUE` when `FRAME_INSTALL` can run a callback once per frame.  |
+| `FRAME_INSTALL_INTERRUPT`   | `TRUE` when the callback may interrupt normal program flow.     |
+| `FRAME_INSTALL_SYNTHESIZED` | `TRUE` when `FRAME_WAIT` itself runs the callback.              |
+| `FRAME_INSTALL(addr)`       | Set a no argument `@ASYNC` PROC as the frame callback.         |
+| `FRAME_UNINSTALL()`         | Remove the frame callback.                                     |
 
-Targets without a frame provider get defaults: `FRAME_WAIT` just
-increments `FRAME_COUNTER` without waiting, and the hook calls are
-inert. Guard frame-paced code with `@IF FRAME_AVAILABLE THEN` (or
-`@REQUIRES FRAME_AVAILABLE`).
+On targets without frame timing, `FRAME_WAIT` only increments
+`FRAME_COUNTER`, and `FRAME_INSTALL` and `FRAME_UNINSTALL` do nothing. Use
+`@IF FRAME_SUPPORTED THEN` or `@REQUIRES FRAME_SUPPORTED` when the
+program depends on real frame timing. `FRAME_WAIT` does not swap
+graphics buffers.
+
+`FRAME_COUNTER` can change while a program reads it on targets where it
+advances without `FRAME_WAIT`. Use `TICKS` when the count must not change
+during a read.
 
 ## Ticks
 
-A free-running elapsed-tick counter, available on every target.
-`TICKS_RESET` latches the system counter into a hidden base;
-`TICKS` returns the ticks elapsed since the last reset. The system
-clock itself is never written.
+Every target provides an elapsed tick counter. `TICKS_RESET` remembers
+its current value, and `TICKS` returns the number of ticks since that
+reset. It does not change the system clock.
 
 | Name                 | What it does                                                    |
 | -------------------- | --------------------------------------------------------------- |
 | `TICKS`              | `U32` ticks elapsed since the last `TICKS_RESET`.               |
 | `TICKS_RESET()`      | Restart the elapsed count from zero.                            |
 | `TICKS_HZ`           | Nominal ticks per second for the target.                        |
-| `TICKS_FREE_RUNNING` | `1` when an interrupt or OS clock drives the count, `0` when it only advances during explicit frame wait or draw calls. |
+| `TICKS_FREE_RUNNING` | `TRUE` when ticks advance automatically, `FALSE` when they advance only during frame wait or drawing calls. |
 
-Tick sources, rates, and caveats are target-specific. See the target
-docs under [`targets/`](targets/) when a program needs exact timing.
+Tick sources, rates, and timing details differ by target. See the target
+pages under [`targets/`](targets/) when a program needs exact timing.
 
 ## Raster interrupts
 
-Some targets provide a portable raster-interrupt API.
+Some targets can run callbacks at selected display rows.
 
 - `RASTER_CLEAR()` - clear the list of marked display rows.
 - `RASTER_MARK_ROW(row)` - mark one visible display row.
 - `RASTER_MARK_ROWS(first, count, step)` - mark several visible rows.
-- `RASTER_MARK_OFFSET(offset)` - mark a raw display-list byte offset.
-- `RASTER_LINE_INSTALL(line_addr)` - install a no-argument PROC address
-  for marked display rows.
-- `RASTER_FRAME_INSTALL(frame_addr)` - install a no-argument PROC address
-  for per-frame work.
-- `RASTER_OFF()` - disable raster interrupts and clear row marks.
-- `RASTER_WSYNC()` - wait for the current scanline boundary.
-- `RASTER_INDEX` - `U8` line counter reset before the frame hook and
-  incremented after each line hook.
+- `RASTER_MARK_OFFSET(offset)` - mark a target specific display position
+  given as a byte offset. See the target page before using this form.
+- `RASTER_LINE_INSTALL(line_addr)` - set the callback for marked display
+  rows.
+- `RASTER_FRAME_INSTALL(frame_addr)` - set a callback that runs once per
+  frame.
+- `RASTER_START()` - resume paused raster callbacks.
+- `RASTER_STOP()` - pause raster callbacks without removing them.
+- `RASTER_UNINSTALL()` - stop and remove the raster callbacks.
+- `RASTER_WSYNC()` - wait until the display starts its next row.
+- `RASTER_INDEX` - number of the current marked row callback, starting at
+  `0` each frame.
 
-The installed PROCs must be no-argument `@ASYNC` PROCs.
-Target docs contain hardware-specific raster examples and timing notes.
+The callback PROCs must take no arguments and use `@ASYNC`. Supported
+rows and timing vary by target; its page contains the details and
+examples.
 
 ## Files
 
-The portable file API uses logical channels and byte streams. A target
-provider maps those channels to its native file system, ROM calls, host
-handles, or other I/O layer.
+The file API opens files on numbered channels and reads or writes one
+byte, line, or value at a time. What a path means depends on the target
+and its available storage.
 
-Targets without a provider keep the default compile time `@ERROR`.
-Target docs list available providers and native argument meanings.
+Using these calls on a target without file support is a compile error.
+The target pages list the supported file systems and explain target
+specific arguments.
+
+`FILE_SUPPORTED` is `TRUE` when the file API can be used.
+`FILE_DIRECTORY_SUPPORTED` is `TRUE` when directory listings are supported.
 
 | Name                    | Type | What it means                                  |
 | ----------------------- | ---- | ---------------------------------------------- |
@@ -345,25 +682,29 @@ Target docs list available providers and native argument meanings.
 
 | Call                                        | What it does                                      |
 | ------------------------------------------- | ------------------------------------------------- |
-| `FILE_OPEN(channel, path$, mode)`           | Open a path on a logical channel.                 |
-| `FILE_OPEN_NATIVE(channel, path$, a1, a2)`  | Open with target native aux/device values.        |
-| `FILE_CLOSE(channel)`                       | Close a logical channel.                          |
+| `FILE_OPEN(channel, path$, mode)`           | Open a path on a numbered channel.                |
+| `FILE_OPEN_NATIVE(channel, path$, a1, a2)`  | Open with extra values defined by the target.     |
+| `FILE_CLOSE(channel)`                       | Close a numbered channel.                         |
 | `FILE_READ_BYTE(channel)`                   | Read one byte and return `U8`.                    |
 | `FILE_WRITE_BYTE(channel, byte)`            | Write one byte.                                   |
-| `FILE_READ_LINE(channel, out line$)`        | Read one text record into a string.               |
+| `FILE_READ_LINE(channel, out line$)`        | Read one line of text into a string.               |
 | `FILE_WRITE_STR(channel, text$)`            | Write a string without adding a newline.          |
+| `FILE_WRITE_LINE(channel, text$)`           | Write a string followed by the target line ending. |
 | `FILE_WRITE_DATA(channel, value)`           | Write one `RESTORE FILE` item to an open file.    |
 | `FILE_LOAD(channel, path$, dst, count)`     | Load `count` bytes from a path into memory.       |
 | `FILE_SAVE_BYTES(channel, path$, src, count)` | Save `count` bytes from memory to a path.       |
 | `FILE_STATUS(channel)`                      | Return the target status byte for the channel.    |
-| `FILE_COMMAND(cmd, channel, a1, a2, path$)` | Run a target native file command.                 |
+| `FILE_COMMAND(cmd, channel, a1, a2, path$)` | Run a target specific file command.               |
+
+`FILE_WRITE_STR` writes only the given text. `FILE_WRITE_LINE` writes
+the text and then the normal line ending for the selected target. Use
+`FILE_WRITE_LINE channel, ""` to write a blank line.
 
 `RESTORE FILE channel, path$, ADDR buffer, count` loads `count` bytes
-from `path$` into `buffer`, then makes later `READ` statements consume
-that buffer instead of compiled-in `DATA`. The file must already be in
-the raw DATA stream format: each item is one length byte followed by the
-item text bytes. Numeric items are stored as their decimal text, not as
-native binary integers.
+from `path$` into `buffer`. Later `READ` statements use that buffer
+instead of the program's `DATA` statements. The file must use the
+`RESTORE FILE` format: one length byte followed by the text bytes for
+each item. Numbers are stored as decimal text, not as binary integers.
 
 Use `FILE_WRITE_DATA` on a file opened for writing to save values in
 that format:
@@ -384,33 +725,38 @@ READ S$
 ```
 
 After that example, `A` is `55` and `S$` is `"HELLO"`. A later bare
-`RESTORE` switches `READ` back to the program's compiled `DATA` pool.
-Use `FILE_SAVE_BYTES` only when you have already built the raw byte
-stream yourself.
+`RESTORE` switches `READ` back to the program's `DATA` statements. Use
+`FILE_SAVE_BYTES` when you want to save bytes rather than values for
+later `READ` statements.
 
-Program file commands are used by dialects and can also be used directly.
+`FILE_OPEN_NATIVE` arguments differ by target. See the target page when
+you need to choose a device, secondary address, drive, or ROM mode.
 
-| Call                         | What it is for                           |
-| ---------------------------- | ---------------------------------------- |
-| `FILE_SAVE_PROGRAM(path$)`   | Dialect `SAVE` style command.            |
-| `FILE_LOAD_PROGRAM(path$)`   | Dialect `LOAD` style command.            |
-| `FILE_LIST_PROGRAM(path$)`   | Dialect `LIST path` style command.       |
-| `FILE_ENTER_PROGRAM(path$)`  | Dialect `ENTER` style command.           |
-| `FILE_RUN_PROGRAM(path$)`    | Dialect `RUN "path"` style command.      |
+## System
 
-`FILE_OPEN_NATIVE` arguments are target specific. See the target docs
-when a program needs explicit device, secondary address, drive, or ROM
-mode values.
+| Support value | What it means |
+| --- | --- |
+| `CMD_SUPPORTED` | System commands can be run. |
+| `CMD_OUTPUT_SUPPORTED` | Command output can be captured. |
 
-## External Storage
+| Call | What it does |
+| --- | --- |
+| `CMD(COMMAND AS STRING) AS I32` | Run a command, wait for it to finish, and return its exit status. |
+| `CMD_OPEN(COMMAND AS STRING) AS U8` | Start a command and capture its output. Returns `1` when started. |
+| `CMD_READ_LINE(OUT LINE AS STRING, OUT HAS_LINE AS U8)` | Read the next captured line and set `HAS_LINE` when one is available. |
+| `CMD_CLOSE() AS I32` | Finish the active captured command and return its exit status. |
 
-To use the portable external storage API, add
-`@INCLUDE "api/external_storage.cbi"`.
+Captured output includes everything printed by the command, including
+errors. Only one captured command can be active at a time. Call `CMD_READ_LINE` until
+`HAS_LINE` is `0`; a blank line has an empty `LINE` and `HAS_LINE` set to
+`1`. Each line must fit in the `STRING` passed to `CMD_READ_LINE`.
+Programs can store the returned lines in their own string array.
 
-This API is for fast target-specific storage providers that are separate
-from the normal logical channel file API. It is currently backed by the
-Ultimate Command Interface where available. One file is active at a
-time.
+## External storage
+
+Some targets provide this simple storage API in addition to the normal
+`FILE_*` calls. It can keep one file open at a time. Check
+`FILES_AVAILABLE()` before using it.
 
 | Name / call | What it does |
 | --- | --- |
@@ -420,10 +766,10 @@ time.
 | `FILES_OPEN(path$, mode)` | Open one path. Returns `FILES_OK` on success. |
 | `FILES_CLOSE()` | Close the current file. |
 | `FILES_WRITE(data$)` | Write a string to the current file. |
-| `FILES_READ_REQUEST(maxlen)` | Request a read chunk. |
-| `FILES_HAS_DATA()` | `1` while the read stream has bytes. |
-| `FILES_READ_BYTE()` | Read one byte from the current read stream. |
-| `FILES_READ_END()` | Finish the current read chunk. |
+| `FILES_READ_REQUEST(maxlen)` | Ask to read up to `maxlen` bytes. |
+| `FILES_HAS_DATA()` | `1` while the requested bytes remain. |
+| `FILES_READ_BYTE()` | Read one requested byte. |
+| `FILES_READ_END()` | Finish the current read request. |
 | `FILES_DELETE(path$)` | Delete a path. |
 | `FILES_CHDIR(path$)` | Change directory where supported. |
 | `FILES_MKDIR(path$)` | Create a directory where supported. |
@@ -431,72 +777,40 @@ time.
 
 ## Networking
 
-To use the portable networking API, add `@INCLUDE "api/net.cbi"`.
-
-Network support is optional. Targets without a provider return `0` from
-`NET_AVAILABLE()` and fail connection/listen calls.
+Network support is optional. Connection calls return a socket number,
+which identifies the connection in later calls. Without network support,
+`NET_AVAILABLE()` returns `0` and connection and listener calls fail.
 
 | Name / call | What it does |
 | --- | --- |
 | `NET_TCP` / `NET_UDP` | Protocol constants. |
 | `NET_AVAILABLE()` | `1` when networking is available. |
-| `NET_GET_IP(out ip$)` | Store the active interface IP address, or an empty string. |
-| `NET_CONNECT(proto, host$, port)` | Open a TCP or UDP socket. Returns a socket handle, or `0`. |
-| `NET_CLOSE(sock)` | Close a socket. |
-| `NET_WRITE(sock, data$)` | Write a string to a socket. |
-| `NET_READ_REQUEST(sock, maxlen)` | Request a read chunk from a socket. |
-| `NET_HAS_DATA()` | `1` while the read stream has bytes. |
-| `NET_READ_BYTE()` | Read one byte from the current read stream. |
-| `NET_READ_END()` | Finish the current read chunk. |
-| `NET_LISTEN(port)` | Start a TCP listener. Returns a listener handle, or `0`. |
-| `NET_ACCEPT(listener)` | Accept a pending TCP client. Returns a socket handle, or `0`. |
+| `NET_GET_IP(out ip$)` | Store the current IP address, or an empty string. |
+| `NET_CONNECT(proto, host$, port)` | Open a TCP or UDP connection. Returns its socket number, or `0`. |
+| `NET_CLOSE(sock)` | Close a connection. |
+| `NET_WRITE(sock, data$)` | Write a string to a connection. |
+| `NET_READ_REQUEST(sock, maxlen)` | Ask to read up to `maxlen` bytes from a connection. |
+| `NET_HAS_DATA()` | `1` while the requested bytes remain. |
+| `NET_READ_BYTE()` | Read one requested byte. |
+| `NET_READ_END()` | Finish the current read request. |
+| `NET_LISTEN(port)` | Listen for TCP connections. Returns a listener number, or `0`. |
+| `NET_ACCEPT(listener)` | Accept a waiting TCP connection. Returns its socket number, or `0`. |
 | `NET_CLOSE_CLIENT(sock)` | Close an accepted client while keeping the listener where supported. |
-
-## UCI
-
-To check for a C64 Ultimate or 1541 Ultimate-II+ provider, add
-`@INCLUDE "api/uci.cbi"`.
-
-| Call | What it does |
-| --- | --- |
-| `UCI_AVAILABLE()` | `1` when the Ultimate Command Interface is reachable. |
-
-## FujiNet
-
-FujiNet support is target provided. Targets with a provider expose
-`FUJINET_AVAILABLE`, a `FUJINET_TRANSPORT` value, and the raw command
-and shared buffer API.
-
-| Name / call | What it does |
-| --- | --- |
-| `FUJINET_TRANSPORT_NONE` / `FUJINET_TRANSPORT_SIO` / `FUJINET_TRANSPORT_DRIVEWIRE` | Transport constants. |
-| `FUJINET_STATUS_OK` / `FUJINET_STATUS_IO_ERROR` / `FUJINET_STATUS_UNSUPPORTED` | Status constants. |
-| `FUJINET_DIR_NONE` / `FUJINET_DIR_READ` / `FUJINET_DIR_WRITE` | Command direction constants. |
-| `FUJINET_BUFFER_MAX` | Maximum shared buffer size. |
-| `FUJINET_STATUS()` | Return the current adapter status. |
-| `FUJINET_COMMAND(device, command, aux1, aux2, direction, count)` | Send one transport native command. |
-| `FUJINET_EXCHANGE(device, command, aux1, aux2, direction, write_count, read_count)` | Send request bytes and optionally read reply bytes. |
-| `FUJINET_BUFFER_CLEAR()` | Clear the shared command buffer. |
-| `FUJINET_BUFFER_SET_LEN(count)` / `FUJINET_BUFFER_LEN()` | Set or read the active buffer length. |
-| `FUJINET_BUFFER_POKE(offset, value)` / `FUJINET_BUFFER_PEEK(offset)` | Write or read one shared buffer byte. |
-| `FUJINET_BUFFER_WRITE_STRING(data$)` / `FUJINET_BUFFER_READ_STRING(out data$)` | Write or read the buffer as a string. |
-
-The include also exports FujiNet device and command constants for raw
-protocol use.
 
 ## Image
 
-The portable image API displays each platform's native image formats at
-native resolution: the build tool wraps a native screen dump in a small
-descriptor, and `IMAGE_DISPLAY` sets the video mode and copies the
-payload straight into video memory. It is intended for splash/loading
-screens, game backgrounds, and static art; hardware sprite state is left
-untouched so sprites can move over a displayed background.
+The image API prepares pictures for a target and displays them at a size
+the target supports. `IMAGE_DISPLAY` selects the right display mode and
+shows the image.
+
+Use it for splash screens, loading screens, game backgrounds, and other
+static art. It leaves sprites alone, so they can move over the
+image.
 
 See the `## Images` section in each image capable target page under
 [`targets/`](targets/) for the image formats supported by that target.
 
-Generated includes define one label per image:
+The included image data has its own label:
 
 ```basic
 CONST TITLE_IMAGE(...) AS U8 = ...
@@ -504,46 +818,55 @@ CONST TITLE_IMAGE(...) AS U8 = ...
 OK = IMAGE_DISPLAY(ADDR TITLE_IMAGE)
 ```
 
-The compiler can generate the descriptor at compile time:
+Use `@INCLUDE_IMAGE` to convert and embed an image:
 
 ```basic
 @INCLUDE_IMAGE TITLE "src/title.png"
 @INCLUDE_IMAGE TITLE "TITLE.IMG" "src/title.png"
 ```
 
-The first form emits `CONST TITLE_IMAGE(...) AS U8 = ...`. The second
-form also emits `CONST TITLE_IMAGE_FILE = "TITLE.IMG"` and writes
-`TITLE.IMG` beside the build output so `IMAGE_LOAD_DISPLAY` can load
-it at runtime. If the source is already a `.img` descriptor, the
-compiler validates it for the active target and reuses the bytes.
+The first form creates `CONST TITLE_IMAGE(...) AS U8 = ...`. The second
+form also creates `CONST TITLE_IMAGE_FILE = "TITLE.IMG"` and packages
+`TITLE.IMG` with the program so `IMAGE_LOAD_DISPLAY` can load it from
+storage. crustyBASIC adjusts the filename to suit the target. A
+target may also provide `TITLE_IMAGE_PATH` with its default device. If
+the source is already a `.img` file, crustyBASIC checks it for the
+active target and uses it unchanged.
 
-On targets with target file loading, `IMAGE_LOAD_DISPLAY` also accepts
-target image files. C64 accepts Koala Painter files.
+`IMAGE_DISPLAY(ADDR ...)` expects prepared IMG data rather than the
+original PNG or PCX. `@INCLUDE_IMAGE` performs that conversion. You can
+also create an IMG file beforehand with `cb-image --img` and embed it
+unchanged with `@INCLUDE_BIN TITLE_IMAGE, "TITLE.IMG"`. Load that array
+with `IMAGE_DISPLAY(ADDR TITLE_IMAGE)`. Embedding a PNG or PCX directly
+with `@INCLUDE_BIN` does not convert it.
 
-Format constants such as `IMAGE_FMT_*` identify native descriptor
-payloads. The converter strips file containers, expands compression
-when needed, and stores payloads in the target's native video-memory
-dump order, so every runtime blit is a straight copy. The target image
-sections list accepted file formats, native image sizes, and format IDs.
+Inside an `@BANK N` block, the `CONST` array is placed in bank `N`.
+
+When `IMAGE_TARGET_FILE_SUPPORTED` is `TRUE`, `IMAGE_LOAD_DISPLAY` also
+accepts the machine's own image files. The target page lists them.
+
+Constants such as `IMAGE_FMT_*` identify the prepared image format. Each
+target's image section lists its file formats, image sizes, and format
+IDs.
 
 Calls:
 
 | Call | What it does |
 | --- | --- |
-| `IMAGE_DISPLAY(src_addr)` | Set the format's video mode and blit the payload. Returns `1` if accepted. |
-| `IMAGE_CLEAR` | Clear available graphics, tile, and cell surfaces. |
-| `IMAGE_WIDTH(src_addr)` / `IMAGE_HEIGHT(src_addr)` | Native pixel size. |
+| `IMAGE_DISPLAY(src_addr)` | Set the image's display mode and copy its data to the screen. Returns `1` on success. |
+| `IMAGE_CLEAR` | Clear the available graphics, tile, and cell screens. |
+| `IMAGE_WIDTH(src_addr)` / `IMAGE_HEIGHT(src_addr)` | Image width and height in pixels. |
 | `IMAGE_FORMAT(src_addr)` | The `IMAGE_FMT_*` id. |
-| `IMAGE_AUX(src_addr)` | Format-specific extra byte. |
-| `IMAGE_LOAD_DISPLAY(path$)` | Open an image file and stream it straight into video memory when `IMAGE_FILE_AVAILABLE` is `1`. Returns `1` on success. |
+| `IMAGE_AUX(src_addr)` | Extra byte whose meaning depends on the image format. |
+| `IMAGE_LOAD_DISPLAY(path$)` | Load an image file and display it directly when `IMAGE_FILE_SUPPORTED` is `TRUE`. Returns `1` on success. |
 
-Capability names:
+Image support values:
 
 | Name | What it means |
 | --- | --- |
-| `IMAGE_AVAILABLE` | Native image display is supported on this target. |
-| `IMAGE_FILE_AVAILABLE` | `IMAGE_LOAD_DISPLAY` can stream image files from disk. |
-| `IMAGE_TARGET_FILE_AVAILABLE` | `IMAGE_LOAD_DISPLAY` can load target image file formats directly. |
+| `IMAGE_SUPPORTED` | Image display is supported on this target. |
+| `IMAGE_FILE_SUPPORTED` | `IMAGE_LOAD_DISPLAY` can load image files from storage. |
+| `IMAGE_TARGET_FILE_SUPPORTED` | `IMAGE_LOAD_DISPLAY` can load target image file formats directly. |
 
 Converter usage:
 
@@ -552,68 +875,68 @@ tools/bin/cb-image --target TARGET --name TITLE input.png -o title.cbi
 tools/bin/cb-image --target TARGET input.png --img -o title.img
 ```
 
-Most image-capable targets also accept indexed PNG and PCX sources up
-to the native resolution. Source colors map to the nearest native
-palette entry and per-cell hardware constraints are satisfied by
-majority reduction. Sources larger than the native mode are an error -
-scale them down first.
+Most targets with image support also accept indexed PNG and PCX files up
+to their supported image size. Colors are adjusted to what the target can
+show, so the result may not match the source exactly. Images larger than
+the target mode are an error, so scale them down first.
 
-`--as` forces a format when the input is ambiguous. `--aux` overrides
-the descriptor aux byte. `--img` writes the raw descriptor bytes as a
-binary instead of a `.cbi` include.
-
-The descriptor layout (version 2) is a 12-byte header: magic `73`,
-version, format id, aux, width/height as `u16le`, reserved, payload
-length as `u16le`, followed by the payload.
+`--as` chooses a format when more than one would fit. `--aux` sets an
+extra value for formats that define one on the target page. `--img`
+writes an `.img` file instead of a `.cbi` include.
 
 ## Cell
 
-The cell API writes raw text/screen cells. It is useful for tile
-games and custom character sets.
+The cell API reads and writes screen cells directly. A raw cell value is
+the target's own code for the character shape shown in that cell. Use
+this API for text based games and custom character sets.
 
 | Call                                           | What it does                                  |
 | ---------------------------------------------- | --------------------------------------------- |
-| `CELL_DRAW(x, y, w, h, addr)`                  | Copy a packed block of cells to the screen.   |
-| `CELL_MEMMOVE(src_x, src_y, dst_x, dst_y, count)` | Move a contiguous raw cell range within the screen. |
+| `CELL_DRAW(x, y, w, h, addr)`                  | Copy a block of cell data to the screen.      |
+| `CELL_MEMMOVE(src_x, src_y, dst_x, dst_y, count)` | Move `count` consecutive cells within the screen. |
 | `CELL_SCROLL_ROW(row, x, w, count, fill, direction)` | Scroll one row segment left or right. |
 | `CELL_SCROLL(x, y, w, h, count, fill, direction)` | Scroll a rectangle left, right, up, or down. |
-| `CELL_CLS()`                                   | Clear the text screen and home cursor.       |
+| `CELL_CLS()`                                   | Clear the cell screen.                         |
 | `CELL_GETC(x, y)`                              | Read one cell when the target can.            |
 | `CELL_PUTC(x, y, c)`                           | Write one raw cell.                           |
 | `CELL_PUTC(x, y, c, color, attr)`              | Write one raw cell, color, and attributes.    |
 | `CELL_PRINT(x, y, s$)`                         | Write a string starting at one cell.          |
 | `CELL_PRINT(x, y, s$, color, attr)`            | Write a string, color, and attributes.        |
 | `CELL_CODE(c)` / `CELL_CODE(s$)`               | Convert a printable byte or string to a raw cell code. |
-| `CELL_COLOR(fg, bg)`                           | Set default/shared cell foreground and background colors. |
-| `CELL_COLOR(fg, bg, color2, color3)`           | Set four cell color slots where supported.    |
+| `CELL_COLORS(fg, bg)`                          | Set default/shared cell foreground and background colors. |
+| `CELL_COLORS(fg, bg, color2, color3)`          | Set four cell color slots where supported.    |
 | `CELL_COLOR(x, y, color)`                      | Set cell color where the target supports it.  |
 | `CELL_ATTRIB(x, y, attr)`                      | Set cell attributes where supported.          |
-| `CELL_FLUSH()`                                 | Push staged writes; no-op on direct targets.  |
+| `CELL_FLUSH()`                                 | Apply any cell changes still waiting to appear. |
 
-Cell values are target specific screen codes. Color and attribute
-granularity are also target specific.
+Cell values are screen codes, and the codes differ by target. Some
+targets let each cell have its own color and attributes, while others
+share them across a larger area. `CELL_CLS` clears the cell screen
+without moving the text cursor.
+
 Use `CELL_PUTC x, y, CELL_CODE("O")` for a printable character, or
-`CELL_PRINT x, y, "HELLO"` for a string. The five argument
-`CELL_PUTC` overload sets color, writes the cell, then applies
-attributes. `CELL_PRINT` uses the same order for each cell, which is
-the portable order when attributes share storage with the cell code.
-In `CELL_MULTICOLOR` modes such as Plus/4 multicolor text,
-`CELL_COLOR fg, bg, color2, color3` sets the default per-cell
-foreground, shared background, and two shared multicolor slots.
-`CELL_COLOR x, y, color` sets that cell's foreground color; the other
-three colors are shared.
+`CELL_PRINT x, y, "HELLO"` for a string.
 
-Cell capability constants:
+The five argument `CELL_PUTC` sets the cell, color, and attributes.
+`CELL_PRINT` does the same for every cell in the string.
+
+In a `CELL_MULTICOLOR` mode, `CELL_COLORS fg, bg, color2, color3` sets
+the default foreground, shared background, and two shared multicolor
+values. `CELL_COLOR x, y, color` changes one cell's foreground. The
+other three colors remain shared.
+
+Cell support constants:
 
 | Constant | Meaning |
 | --- | --- |
-| `CELL_AVAILABLE` | Raw cell/charmap APIs are meaningful. |
-| `CELL_HAS_COLOR` | `CELL_COLOR` has target support. |
-| `CELL_COLOR_MODEL` | How the target stores cell color. |
-| `CELL_COLOR_W` / `CELL_COLOR_H` | Color attribute granularity in cells. |
-| `CELL_MULTICOLOR_AVAILABLE` | `DISPLAY(CELL_MULTICOLOR)` is supported. |
-| `CELL_HAS_ATTRIB` | `CELL_ATTRIB` has target support. |
-| `CELL_ATTRIB_W` / `CELL_ATTRIB_H` | Attribute granularity in cells. |
+| `CELL_SURFACE_SUPPORTED` | `TRUE` when the target has a cell screen addressed by column and row. |
+| `CELL_PIXEL_W` / `CELL_PIXEL_H` | Cell size in pixels. |
+| `CELL_COLOR_SUPPORTED` | `CELL_COLORS` and `CELL_COLOR` have target support. |
+| `CELL_COLOR_MODEL` | How cell colors can be selected. |
+| `CELL_COLOR_W` / `CELL_COLOR_H` | Width and height, in cells, that share one color setting. |
+| `CELL_MULTICOLOR_SUPPORTED` | `DISPLAY(CELL_MULTICOLOR)` is supported. |
+| `CELL_ATTRIB_SUPPORTED` | `CELL_ATTRIB` has target support. |
+| `CELL_ATTRIB_W` / `CELL_ATTRIB_H` | Width and height, in cells, that share one attribute setting. |
 
 Cell color model constants:
 
@@ -621,60 +944,106 @@ Cell color model constants:
 | --- | --- |
 | `CELL_COLOR_MODEL_NONE` | No portable cell color. |
 | `CELL_COLOR_MODEL_SHARED` | Shared/global cell colors only. |
-| `CELL_COLOR_MODEL_PER_CELL_FG` | Per-cell foreground with shared background. |
-| `CELL_COLOR_MODEL_PER_CELL_FG_BG` | Per-cell foreground/background pair. |
-| `CELL_COLOR_MODEL_PER_CELL_PALETTE` | Per-cell palette or color-set selection. |
-| `CELL_COLOR_MODEL_BLOCK_PALETTE` | Palette or color-set selection shared by a cell block. |
+| `CELL_COLOR_MODEL_PER_CELL_FG` | Each cell has its own foreground and shares the background. |
+| `CELL_COLOR_MODEL_PER_CELL_BG` | Each cell has its own background and shares the foreground. |
+| `CELL_COLOR_MODEL_PER_CELL_FG_BG` | Each cell has its own foreground and background pair. |
+| `CELL_COLOR_MODEL_PER_CELL_PALETTE` | Each cell selects a palette or color set. |
+| `CELL_COLOR_MODEL_BLOCK_PALETTE` | A block of cells shares one palette or color set. |
+| `CELL_COLOR_MODEL_PER_PIXEL` | Each pixel has its own color. |
 
-Current attributes are `NORMAL`, `INVERSE`, `ITALIC`, and `BLINKING`.
+The available attributes are `NORMAL`, `INVERSE`, `ITALIC`, and
+`BLINKING`.
 Scroll directions are `CELL_SCROLL_LEFT`, `CELL_SCROLL_RIGHT`,
-`CELL_SCROLL_UP`, and `CELL_SCROLL_DOWN`. `CELL_MEMMOVE` works on a
-physically contiguous range from the source cell, so use it for a
-single row or for target specific layouts where the range is known to
-be contiguous.
+`CELL_SCROLL_UP`, and `CELL_SCROLL_DOWN`. `CELL_MEMMOVE` follows the
+target's cell layout. Use it for one row unless the target page says a
+larger range is safe.
 
 ## Charset
 
-Targets with writable text character sets expose `CHARSET_AVAILABLE =
-1`. Portable programs that require this feature should start with:
+Use the charset API to replace the shapes used to draw characters in the
+cell display. Depending on the target, a program can replace the complete
+character set or individual characters.
+
+`CHARSET_SUPPORTED` is `TRUE` when the complete charset API can be used.
+`CHARSET_DEFINE_SUPPORTED` is `TRUE` when the target instead supports changing
+individual characters. Only one of these values is `1`. A program that only
+needs a custom character can start with:
 
 ```basic
-@REQUIRES CHARSET_AVAILABLE @ELSE "programmable charset support is required"
+@REQUIRES CHARSET_SUPPORTED OR CHARSET_DEFINE_SUPPORTED @ELSE "custom character support is required"
 ```
 
-| Call | What it does |
-| --- | --- |
-| `CHARSET_COPY_DEFAULT(addr)` | Copy the target's default font into RAM. |
-| `CHARSET_INSTALL(addr)` | Select the RAM charset surface. Does not copy font bytes. |
-| `CHARSET_DEFINE(code, addr)` | Copy one glyph into a raw charset slot. |
-| `CHARSET_DEFINE(s$, addr)` | Copy one glyph into the slot for the first printable character in `s$`. |
-| `CHARSET_RESET()` | Restore the target's default charset. |
+| Call | Required support | What it does |
+| --- | --- | --- |
+| `CHARSET_COPY_DEFAULT()` | `CHARSET_SUPPORTED` | Make an editable copy of the normal font and start using it. |
+| `CHARSET_INSTALL(src_addr)` | `CHARSET_SUPPORTED` | Copy a full character set and start using it. |
+| `CHARSET_DEFINE(code, addr)` | Either support value | Replace one character shape. |
+| `CHARSET_DEFINE(s$, addr)` | Either support value | Replace the shape for the first printable character in `s$`. |
+| `CHARSET_RESET()` | `CHARSET_SUPPORTED` | Switch back to the target's normal character set. |
 
-Call `CHARSET_COPY_DEFAULT(addr)` before `CHARSET_INSTALL(addr)` when
-you want to keep the normal glyphs and override only a few entries.
-`CHARSET_DEFINE("!", ADDR GLYPH)` is equivalent to
-`CHARSET_DEFINE(CELL_CODE("!"), ADDR GLYPH)` and returns the same value
-as `CELL_CODE("!")`. Use the numeric form for raw slots that do not
-have a printable character.
+Call `CHARSET_COPY_DEFAULT()` before changing only a few characters. It
+keeps the normal font, makes an editable copy, and switches the display
+to that copy.
 
-Charset shape constants describe the selected surface:
+`CHARSET_INSTALL` always copies
+`CHARSET_NUM_ENTRIES * CHARSET_BYTES_PER_ENTRY` bytes, so you do not
+pass a byte count. You can install a complete embedded font directly:
+
+```basic
+@INCLUDE_BIN FONT, "{program_name}/font.bin"
+CHARSET_INSTALL ADDR FONT
+```
+
+Without `COUNT`, `@INCLUDE_BIN` embeds the whole file.
+`CHARSET_DEFINE("!", ADDR GLYPH)` changes the same character as
+`CHARSET_DEFINE(CELL_CODE("!"), ADDR GLYPH)`. Both forms return the cell
+code they changed. Use a number when the character position has no
+printable character.
+
+Use `CHARSET_CUSTOM_FIRST` when a program needs one custom character.
+This example replaces the first custom character with a diamond and
+draws it:
+
+```basic
+CONST GLYPH[7] AS U8 = %
+	...XX...
+	..XXXX..
+	.XXXXXX.
+	XXXXXXXX
+	XXXXXXXX
+	.XXXXXX.
+	..XXXX..
+	...XX...
+END%
+
+@IF CHARSET_SUPPORTED THEN
+	CHARSET_COPY_DEFAULT
+@ENDIF
+CHARSET_DEFINE CHARSET_CUSTOM_FIRST, ADDR GLYPH
+CELL_PUTC 10, 10, CHARSET_CUSTOM_FIRST
+```
+
+For several custom characters, use consecutive character numbers from
+`CHARSET_CUSTOM_FIRST` through `CHARSET_CUSTOM_LAST`.
+`CHARSET_CUSTOM_COUNT` is the number of characters in that range.
+
+Run `crustybasic target-info <system>` to see which character numbers
+these names use and how the default characters are arranged.
 
 | Constant | Meaning |
 | --- | --- |
-| `CHARSET_NUM_ENTRIES` | Number of entries in the charset surface. |
-| `CHARSET_BYTES_PER_ENTRY` | Bytes per glyph entry. |
-| `CHAR_PIXEL_WIDTH` | Glyph width in pixels. |
-| `CHAR_PIXEL_HEIGHT` | Glyph height in pixels. |
+| `CHARSET_NUM_ENTRIES` | Number of character shapes. |
+| `CHARSET_BYTES_PER_ENTRY` | Number of bytes in each character shape. |
+| `CHARSET_CUSTOM_FIRST` / `CHARSET_CUSTOM_LAST` | First and last character numbers to use for custom shapes. |
+| `CHARSET_CUSTOM_COUNT` | Number of character numbers from `CHARSET_CUSTOM_FIRST` through `CHARSET_CUSTOM_LAST`. |
 
 ## Tile
 
-To use the portable tile API, add `@INCLUDE "tile.cbi"`. TILE draws a
-playfield on whatever the target supports: text cells, graphics, or a
-tile display. Coordinates are tile positions, not pixels.
+The TILE API draws a playfield using a character screen, bitmap
+graphics, or the target's own tile display. Its coordinates are tile
+positions, not pixels.
 
 ```basic
-@INCLUDE "tile.cbi"
-
 DISPLAY TILE_DEFAULT_DISPLAY_MODE
 TILE_BEGIN 2, 2
 TILE_ALIAS 0, " "
@@ -683,54 +1052,81 @@ TILE_CLEAR_TILE 0
 TILE_BOX 0, 0, TILE_COLUMNS - 1, TILE_ROWS - 1, 1
 ```
 
-Most programs should select a display mode, then call
-`TILE_BEGIN cell_w, cell_h`.
-`cell_w` and `cell_h` are the size of one tile in normal text cells.
-Use `1, 1` for single-character tiles, or larger values for block tiles.
+Most programs select a display mode and then call
+`TILE_BEGIN span_w, span_h`. `span_w` and `span_h` say how many 8x8 base
+units make up one game tile. Use `1, 1` for one base unit or larger
+values for block tiles.
 
-`TILE_BEGIN(cell_w, cell_h, base)` is for targets that need a
-character or tile memory address. Omit `base` unless the target docs ask
-for it.
+Some targets need a character or tile memory address. On those targets,
+use `TILE_BEGIN(span_w, span_h, base)`. Leave out `base` unless the
+target page asks for it.
 
-The drawing method (the backend) is fixed when the program compiles:
+TILE can draw in four ways:
 
-| Name          | Meaning                                      |
-| ------------- | -------------------------------------------- |
-| `TILE_CELL` | Draw through the target text/cell screen. |
-| `TILE_NATIVE` | Draw through target tile hardware such as a nametable or display list. |
-| `TILE_BITMAP` | Draw tiles on a graphics bitmap. |
-| `TILE_KERNEL` | Use a target-specific tile display. |
+| `@OPTION` value | Command line value | Meaning |
+| --- | --- | --- |
+| `TILE_CELL` | `cell` | Draw on the target's character screen. |
+| `TILE_HARDWARE` | `hardware` | Use the target's built in tile display. |
+| `TILE_BITMAP` | `bitmap` | Draw tile pictures in a bitmap graphics mode. |
+| `TILE_KERNEL` | `kernel` | Use a target specific tile mode with its own limits. |
 
-`@OPTION TILE_BACKEND TILE_BITMAP` picks the backend from source. On the
-command line use `--set tile-backend=cell`, `--set tile-backend=native`,
-`--set tile-backend=bitmap`, or `--set tile-backend=kernel`. If it is
-not set, the target's preferred backend is used. Only the selected
-backend's drawing code links into the program, and the read-only
-`TILE_BACKEND` constant reports the choice. Unsupported choices are
-compile errors.
-`TILE_BEGIN` does not change the display mode. Use
-`DISPLAY TILE_DEFAULT_DISPLAY_MODE` for the selected tile backend's
-portable default, or call `DISPLAY` with a target-specific mode before
-`TILE_BEGIN`.
-
-Fixed tile sizes can be declared as source optimization hints:
+To use bitmap tiles:
 
 ```basic
-@OPTION TILE_FIXED_CELL_W 1
-@OPTION TILE_FIXED_CELL_H 1
+@OPTION TILE_BACKEND TILE_BITMAP
 ```
 
-These hints are optional. Targets may use them to select smaller or
-faster TILE helpers, and targets may ignore them. Use them only when
-every `TILE_BEGIN` call uses that cell size. If the hint and the runtime
-tile size disagree, target-specific optimized TILE paths may draw the
-wrong cells.
+From the command line, use `--set tile-backend=bitmap`. If neither form
+is used, the target chooses its preferred way. An unsupported choice is
+a compile error.
+
+`TILE_BEGIN` does not change the display mode. For portable code, call
+`DISPLAY TILE_DEFAULT_DISPLAY_MODE` first. You can also select a target
+specific mode before `TILE_BEGIN`.
+
+The default TILE span is 1 by 1. Programs using that size need no span
+options:
+
+```basic
+TILE_BEGIN 1, 1
+```
+
+When every `TILE_BEGIN` uses another size, declare that size with both
+span options:
+
+```basic
+@OPTION TILE_FIXED_SPAN_W 2
+@OPTION TILE_FIXED_SPAN_H 2
+TILE_BEGIN 2, 2
+```
+
+When a program uses more than one span, set both options to zero:
+
+```basic
+@OPTION TILE_FIXED_SPAN_W 0
+@OPTION TILE_FIXED_SPAN_H 0
+TILE_BEGIN WIDTH, HEIGHT
+```
+
+Fixed span values must match every `TILE_BEGIN` call in the program. A
+mismatch may draw the wrong tiles.
+
+If a program uses only a small range of tile IDs, it can set the number
+of active IDs:
+
+```basic
+@OPTION TILE_ACTIVE_COUNT 4
+```
+
+The default is `TILE_MAX_COUNT`, normally 64, though some targets offer
+less. A value of `N` allows tile IDs `0` through `N - 1` and may use less
+memory. Do not use tile ID `N` or higher.
 
 Tile drawing:
 
 | Call                                  | What it does                                |
 | ------------------------------------- | ------------------------------------------- |
-| `TILE_PLOT(x, y, tile)`               | Draw one logical tile.                      |
+| `TILE_PLOT(x, y, tile)`               | Draw one game tile.                         |
 | `TILE_CLEAR(x, y)`                    | Draw the selected clear tile.               |
 | `TILE_PRINT(x, y, text$)`             | Draw text starting at a tile position.      |
 | `TILE_HLINE(x0, x1, y, tile)`         | Draw a horizontal tile run.                 |
@@ -739,15 +1135,13 @@ Tile drawing:
 | `TILE_UNVLINE(x, y0, y1)`             | Clear a vertical tile run.                  |
 | `TILE_BOX(x0, y0, x1, y1, tile)`      | Draw a tile rectangle outline.              |
 | `TILE_FILLBOX(x0, y0, x1, y1, tile)`  | Fill a tile rectangle.                      |
-| `TILE_CLS()`                          | Clear the TILE surface.                     |
+| `TILE_CLS()`                          | Clear the tile area.                        |
 
-`TILE_PRINT` uses tile coordinates and does not clip text. The caller
-must keep the string inside the TILE surface. Cell TILE backends write
-normal screen cells. Native TILE backends write target tile-map entries.
-Bitmap TILE backends use the built-in 8x8 font unless the target
-provides its own text renderer.
+`TILE_PRINT` uses tile coordinates and does not clip text, so keep the
+string inside the tile area. It uses the target's TILE font, which is
+normally 8 by 8 pixels.
 
-Additional Font Glyphs:
+Additional font characters:
 
 | Name | Code | Use |
 | --- | --- | --- |
@@ -760,76 +1154,121 @@ Tile timing:
 
 | Call                                  | What it does                                |
 | ------------------------------------- | ------------------------------------------- |
-| `WAIT_TILE()`                         | Wait for the target default tile interval.  |
-| `WAIT_TILE(count)`                    | Wait for a target-specific tile interval.   |
+| `TILE_WAIT()`                         | Wait for `TILE_DEFAULT_WAIT` frames when frame timing is available. |
+| `TILE_WAIT(count)`                    | Wait `count` display frames when frame timing is available. |
+| `TILE_DEFAULT_WAIT`                   | Frame count used by `TILE_WAIT()`.           |
+
+On targets without frame timing, the count uses the target's `DELAY`
+units instead. `TILE_WAIT(count)` does not adjust the count for
+`REGION`. PAL frames are longer than NTSC frames, so the same frame
+count takes longer on PAL. Use elapsed ticks when equal real world
+timing is required.
 
 Tile assets:
 
 | Call                                  | What it does                                |
 | ------------------------------------- | ------------------------------------------- |
-| `TILE_ALIAS(id, code)` / `TILE_ALIAS(id, s$)` | Map an abstract ID to a backend tile or cell code. |
-| `TILE_DEFINE(id, addr)`               | Define tile glyph data for capable targets. |
-| `TILE_BLOCK_DEFINE(id, w, h, addr)`   | Name a row-major tile or cell block.        |
+| `TILE_ALIAS(id, code)` / `TILE_ALIAS(id, s$)` | Map a tile ID to a tile or cell code. |
+| `TILE_DEFINE(id, addr)`               | Install a picture for one tile ID when supported. |
+| `TILE_BLOCK_DEFINE(id, w, h, addr)`   | Name a rectangular block of tile IDs stored one row after another. |
 | `TILE_BLIT(block, x, y)`              | Draw a named block.                         |
-| `TILE_BLIT(addr, x, y, w, h)`         | Draw an ad hoc block.                       |
+| `TILE_BLIT(addr, x, y, w, h)`         | Draw a block directly from memory.          |
 | `TILE_CLEAR_TILE(id)`                 | Select the clear tile ID.                   |
 | `TILE_COLOR(id, fg, bg)`              | Set TILE colors when available.             |
-| `TILE_DEFAULT_DISPLAY_MODE()`         | Return a default `DISPLAY` mode for the selected tile backend. |
+| `TILE_DEFAULT_DISPLAY_MODE()`         | Return the portable `DISPLAY` mode for the current TILE choice. |
 
-Capability and geometry names:
+`TILE_DEFINE` takes a game tile ID. On cell displays, valid IDs run
+from `0` through `CHARSET_CUSTOM_COUNT - 1`. `TILE_ACTIVE_COUNT` must
+also include every ID used. Ordinary text characters remain unchanged.
+
+Constant tile pictures use the same portable 8 byte shape as visual binary
+data:
+
+```basic
+CONST ROCK_GLYPH[7] AS U8 = %
+...XX...
+..XXXX..
+.XXXXXX.
+XXXXXXXX
+XXXXXXXX
+.XXXXXX.
+..XXXX..
+...XX...
+END%
+
+PROC SETUP_TILES
+	TILE_DEFINE TILE_ROCK, ADDR ROCK_GLYPH
+ENDPROC
+```
+
+The ID remains the number used by `TILE_PLOT` and the other TILE calls. Set
+`TILE_ACTIVE_COUNT` high enough to include every tile ID used. The target may
+use the shape directly, convert it at runtime, or pack constant data into its
+native layout while building the program.
+
+`TILE_CUSTOM_SHAPE_SUPPORTED` covers constant `U8` shapes. A mutable array requires
+`TILE_CUSTOM_SHAPE_DYNAMIC_SUPPORTED`. A target that packs constant shapes still
+runs the call to bind the tile ID, so put it in the normal setup code. Both
+capabilities describe the selected `TILE_BACKEND`, not every backend offered by
+the target.
+
+Tile support and size values:
 
 | Name / call                    | What it means                                   |
 | ------------------------------ | ----------------------------------------------- |
-| `TILE_AVAILABLE`               | Tile drawing is available.                      |
-| `TILE_CELL_AVAILABLE`          | Text/cell screen drawing is available.          |
-| `TILE_NATIVE_AVAILABLE`        | Target tile hardware drawing is available.      |
-| `TILE_BITMAP_AVAILABLE`        | Bitmap drawing mode exists.                     |
-| `TILE_KERNEL_AVAILABLE`        | Target-specific tile display is available.      |
-| `TILE_DEFINE_AVAILABLE`        | `TILE_DEFINE` can install tile data.            |
-| `TILE_BLOCK_AVAILABLE`         | `TILE_BLOCK_DEFINE` and `TILE_BLIT` are useful. |
-| `TILE_COLOR_AVAILABLE`         | Current tile surface honors `TILE_COLOR`.       |
-| `TILE_BACKEND`                 | Active drawing mode.                            |
-| `TILE_CELL_W` / `TILE_CELL_H`  | Tile size in screen cells.                      |
-| `TILE_PIXEL_W` / `TILE_PIXEL_H` | Tile size in pixels.                           |
-| `TILE_COLUMNS` / `TILE_ROWS`   | Logical TILE surface size.                      |
+| `TILE_SUPPORTED`               | Tile drawing is available.                      |
+| `TILE_CELL_SUPPORTED`          | Text/cell screen drawing is available.          |
+| `TILE_HARDWARE_SUPPORTED`      | The target's built in tile display is available. |
+| `TILE_BITMAP_SUPPORTED`        | Bitmap drawing mode exists.                     |
+| `TILE_KERNEL_SUPPORTED`        | A target specific tile mode is available.       |
+| `TILE_CUSTOM_SHAPE_SUPPORTED` | `TILE_DEFINE` accepts constant tile data.       |
+| `TILE_CUSTOM_SHAPE_DYNAMIC_SUPPORTED` | `TILE_DEFINE` accepts mutable tile data. |
+| `TILE_BLOCK_SUPPORTED`         | `TRUE` when tile blocks can be defined and drawn.  |
+| `TILE_COLOR_AVAILABLE`         | `TRUE` when `TILE_COLOR` works in the current tile mode. |
+| `TILE_BACKEND`                 | Current `TILE_CELL`, `TILE_HARDWARE`, `TILE_BITMAP`, or `TILE_KERNEL` choice. |
+| `TILE_MAX_COUNT`               | Default number of available tile IDs.           |
+| `TILE_BASE_PIXEL_W` / `TILE_BASE_PIXEL_H` | Base tile unit size in pixels.                |
+| `TILE_SPAN_W` / `TILE_SPAN_H`  | Base units occupied by one game tile.           |
+| `TILE_SPAN_PIXEL_W` / `TILE_SPAN_PIXEL_H` | Complete game tile size in pixels.            |
+| `TILE_COLUMNS` / `TILE_ROWS`   | Width and height of the tile area.              |
 
-Bitmap TILE uses `DISPLAY` and the portable graphics API internally and can draw glyphs supplied by
-`TILE_DEFINE`; bitmap `TILE_BLIT` treats block bytes as tile IDs, so
-defined glyphs and `TILE_COLOR` settings are honored. Kernel TILE
-targets may expose only a small subset. Target docs list backend
-limits.
+With `TILE_BITMAP`, `TILE_BLIT` block data contains tile IDs and uses
+the matching pictures and colors. `TILE_KERNEL` may support only part of
+the TILE API. The target pages list those limits.
 
-`TILE_COLOR_AVAILABLE` is read-only runtime state that reports whether
-the selected TILE backend honors `TILE_COLOR`. For bitmap TILE, it follows
-the current `DISPLAY` mode and should be read after that mode is selected.
-It cannot be used with `@IF` or `@REQUIRES`.
+`TILE_COLOR_AVAILABLE` tells you whether `TILE_COLOR` works. With
+`TILE_BITMAP`, its value depends on the current `DISPLAY` mode, so check
+it afterward with a normal `IF`. It cannot be used with `@IF` or
+`@REQUIRES`.
 
 ## Input
 
-| Call                     | What it does                                        |
+| Name / call              | What it does                                        |
 | ------------------------ | --------------------------------------------------- |
-| `KEY()`                  | Blocking typed key code. Returns `U8`.              |
-| `INKEY()`                | Nonblocking typed key as a string, or `""`.         |
-| `INKEY_CODE()`           | Nonblocking typed key code, or `0`.                 |
-| `RAWKEY()`               | Nonblocking held key as a string, or `""`.          |
-| `RAWKEY_CODE()`          | Nonblocking held key code, or `0`.                  |
+| `INPUT(INOUT value)`     | Read one line and return `1` if it was assigned, or `0`. |
+| `KEY()`                  | Wait for a typed key and return its `U8` code.        |
+| `INKEY()`                | Return a typed key as a string immediately, or `""`. |
+| `INKEY_CODE()`           | Return a typed key code immediately, or `0`.         |
+| `RAWKEY()`               | Return a held key as a string immediately, or `""`.  |
+| `RAWKEY_CODE()`          | Return a held key code immediately, or `0`.          |
 | `KEY_HELD(code)`         | `1` while the requested key is down, or `0`.        |
-| `KEYBOARD_AVAILABLE`           | `1` when keyboard input is available.               |
-| `KEY_HELD_AVAILABLE`           | `1` when individual held key polling is available.  |
-| `KEYPAD_AVAILABLE`             | `1` when keypad input is available.                 |
-| `JOYSTICK_AVAILABLE`           | `1` when joystick input is available.               |
-| `JOYSTICK_BUTTONS_AVAILABLE`   | `1` when joystick buttons are available.            |
-| `ANALOG_JOYSTICK_AVAILABLE`    | `1` for analog joysticks.                           |
-| `DIGITAL_JOYSTICK_AVAILABLE`   | `1` for digital joysticks.                          |
-| `PADDLES_AVAILABLE`            | `1` when `PADDLE(axis)` has supported axes.         |
-| `MOUSE_AVAILABLE`              | `1` when mouse input is available.                  |
+| `KEYBOARD_SUPPORTED`           | `TRUE` when keyboard input is available.             |
+| `KEY_HELD_SUPPORTED`           | `TRUE` when individual held keys can be checked.      |
+| `KEYPAD_SUPPORTED`             | `TRUE` when keypad input is available.                |
+| `JOYSTICK_SUPPORTED`           | `TRUE` when joystick input is available.              |
+| `JOYSTICK_BUTTONS_SUPPORTED`   | `TRUE` when joystick buttons are available.           |
+| `ANALOG_JOYSTICK_SUPPORTED`    | `TRUE` for analog joysticks.                          |
+| `DIGITAL_JOYSTICK_SUPPORTED`   | `TRUE` for digital joysticks.                         |
+| `PADDLES_SUPPORTED`            | `TRUE` when `PADDLE(axis)` has supported axes.        |
+| `MOUSE_SUPPORTED`              | `TRUE` when mouse input is available.                 |
 | `INPUT_ANY()`            | `1` when a key, keypad, joystick, or button is active. |
 | `INPUT_ANY(wait)`        | `INPUT_ANY()`, but blocks first when `wait` is `1`. |
 | `INPUT_CLEAR()`          | `1` when no key, keypad, joystick, or button is active. |
 | `INPUT_CLEAR(wait)`      | `INPUT_CLEAR()`, but blocks first when `wait` is `1`. |
-| `JOY(port)`              | Direction bits from a zero-based joystick port.     |
+| `JOY(port)`              | Direction bits from a joystick port numbered from zero. |
 | `JOY_BUTTON(port, button)`   | `1` if pressed, `0` otherwise.                      |
-| `JOY_SET_DEADZONE(value)` | set analog joystick dead zone                     |
+| `INPUT_JOY_KEYMAP(port, button, up, down, left, right, button_key)` | Combine a joystick with optional held keys. |
+| `JOY_SET_DEADZONE(value)` | Set the analog joystick dead zone.                |
 | `PADDLE(axis)`           | Raw analog axis value.                              |
 | `KEYPAD_CODE(port)`      | Raw keypad code, or `KEYPAD_NONE`.                  |
 
@@ -840,18 +1279,20 @@ Input constants:
 | `JOY_PORTS`             | Number of joystick ports for `JOY(port)`.           |
 | `JOY_DEFAULT_PORT`      | Default joystick port for gameplay input.           |
 | `JOY_BUTTONS`           | Buttons per joystick port for `JOY_BUTTON(port, button)`. |
-| `JOY_DEADZONE_DEFAULT`  | initial analog joystick dead zone                   |
+| `INPUT_JOY_BUTTON`      | Button bit returned by `INPUT_JOY_KEYMAP`.          |
+| `JOY_DEADZONE_DEFAULT`  | Initial analog joystick dead zone.                  |
 | `PADDLE_AXES`           | Number of analog axes for `PADDLE(axis)`.           |
 | `ANALOG_AXIS_PAIR_NAME` | Name for an X/Y analog axis pair.                   |
 | `MOUSE_BUTTONS`         | Number of mouse buttons; `0` when none.             |
 | `KEYPAD_PORTS`          | Number of keypad ports for `KEYPAD_CODE(port)`.     |
 | `KEYPAD_KEYS`           | Number of keypad key codes, excluding `KEYPAD_NONE`. |
 | `KEYPAD_FUNCTION_KEYS`  | Number of nonnumeric keypad key codes.              |
-| `KEYPAD_TEXT_INPUT_AVAILABLE` | `true` when keypad numeric `INPUT` is available. |
+| `KEYPAD_TEXT_INPUT_SUPPORTED` | `TRUE` when keypad numeric `INPUT` is available. |
+| `KEYPAD_STRING_INPUT_SUPPORTED` | `TRUE` when keypad string `INPUT` is available. |
 | `KEY_SPACE`               | ASCII keyboard space code.                         |
 | `KEY_0` through `KEY_9` | ASCII keyboard digit codes.                         |
 | `KEY_A` through `KEY_Z` | Uppercase ASCII keyboard letter codes.              |
-| `KEY_LOWER_A`, `KEY_LOWER_Z`, `KEY_LOWER_TO_UPPER_DELTA` | Helpers for folding lowercase ASCII letters. |
+| `KEY_LOWER_A`, `KEY_LOWER_Z`, `KEY_LOWER_TO_UPPER_DELTA` | Values used to convert lowercase ASCII letters to uppercase. |
 
 `KEYPAD_CODE(port)` returns `KEYPAD_NONE`, `KEYPAD_0` through
 `KEYPAD_9`, `KEYPAD_ASTERISK`, `KEYPAD_POUND`, `KEYPAD_START`,
@@ -860,8 +1301,11 @@ Input constants:
 
 Keyboard constants `KEY_SPACE`, `KEY_0` through `KEY_9`, and `KEY_A`
 through `KEY_Z` are useful with `KEY()`, `INKEY_CODE()`, and
-`RAWKEY_CODE()` on targets that report ASCII-compatible characters.
-Cursor and function key codes are target specific.
+`RAWKEY_CODE()` on targets that report ASCII character codes.
+Targets also define constants such as `KEY_ENTER`, `KEY_BACKSPACE`,
+`KEY_DELETE`, `KEY_ESCAPE`, `KEY_TAB`, cursor keys, and function keys
+when available. Some targets add `RAWKEY_*` constants for keys whose raw
+codes differ from their typed character codes.
 
 Test joysticks against `JOY_UP`, `JOY_DOWN`, `JOY_LEFT`, `JOY_RIGHT` with bitwise `&`:
 
@@ -872,49 +1316,58 @@ IF JOY(0) & JOY_LEFT <> 0 THEN ...
 Missing joystick ports and buttons return 0. On analog joystick targets,
 `JOY` still returns the shared direction bits.
 
+`INPUT_JOY_KEYMAP` returns the `JOY_UP`, `JOY_DOWN`, `JOY_LEFT`, and
+`JOY_RIGHT` bits from the selected joystick and mapped keys. It adds
+`INPUT_JOY_BUTTON` when the selected joystick button or mapped button
+key is held. Use `KEY_NONE` for any key that should not be mapped. Key
+arguments are ignored when `KEY_HELD_SUPPORTED` is `FALSE`.
+
 Analog targets start with `JOY_DEADZONE_DEFAULT`; larger
 `JOY_SET_DEADZONE(n)` values ignore more center drift, smaller values
 make the stick more sensitive, and digital targets accept the call
 without changing state.
 
 `MOUSE_BUTTONS` reports the button count, not the current button state.
-Mouse position and mouse-button state are target-specific until a
-portable mouse input surface exists.
+Mouse position and button state are target specific.
 
-`KEY()`, `INKEY()`, and `INKEY_CODE()` are typed keyboard input. They
-read the target's normal key queue or equivalent translated key path, so
-they report character events rather than the current physical key state.
+`KEY()`, `INKEY()`, and `INKEY_CODE()` return typed characters rather
+than keys that are currently held down.
 `KEY()` blocks until a character is available. `INKEY()` and
 `INKEY_CODE()` return immediately. Use them for prompts, menus, and text
 input.
 
-`RAWKEY()` and `RAWKEY_CODE()` are for games and control polling. They
-use a direct key state path when a target has one, bypassing the text
-editor or key queue. A held key may be reported on every poll. On
-targets without a separate direct key path, raw key input may match
-`KEY()`, `INKEY()`, and `INKEY_CODE()`.
+`RAWKEY()` and `RAWKEY_CODE()` are for checking game controls. They
+report a held key on every poll when the target can read the keyboard
+directly. On other targets, raw key input may match `KEY()`, `INKEY()`,
+and `INKEY_CODE()`.
 
 `KEY_HELD(code)` checks one key without blocking or consuming typed
 input. It accepts `KEY_SPACE`, `KEY_0` through `KEY_9`, and `KEY_A`
 through `KEY_Z`. Letter codes identify the key regardless of Shift or
-character case. Gate its use with `KEY_HELD_AVAILABLE`. Multiple key
-detection follows the target keyboard's rollover and ghosting limits.
+character case. Check `KEY_HELD_SUPPORTED` before using it. Some
+keyboards cannot detect every combination of held keys.
 
-`INPUT_ANY()` is for "press anything" prompts. On keyboard targets it
-checks raw key state and does not consume the text key queue. On keypad
-targets it also reports active keypad keys. Pass `0` to poll and `1`
-to wait until the condition is true. To prevent held input from
-carrying into a prompt, wait for clear input before waiting for new
-input:
+`INPUT_ANY()` is for "press anything" prompts. It checks held keys
+without consuming a character waiting for `INKEY`. It also checks
+keypads and controllers when available. Pass `0` to poll and `1` to
+wait. To prevent an already held button from carrying into a prompt,
+wait for clear input before waiting for new input:
 
 ```basic
 INPUT_CLEAR 1
 INPUT_ANY 1
 ```
 
-Keypad backed `INPUT` is limited to unsigned integer variables. Press
-the target's keypad commit key to finish entry. Target docs list keypad
-details and per-target input counts.
+`INPUT(value)` reads and echoes one line. The type of `value` tells it
+whether to read a number or a string. It returns `1` after storing a
+value. Invalid numeric text, numeric overflow, or text that does not fit
+returns `0` and leaves `value` unchanged. The call does not print an
+error or try again.
+
+On a keypad, `INPUT` supports unsigned integer variables. Targets with
+`KEYPAD_STRING_INPUT_SUPPORTED` also support strings. Press the target's
+keypad key used to accept input. The target pages list keypad details
+and input counts.
 
 ## Game helpers
 
@@ -922,125 +1375,128 @@ These helpers are for portable game code.
 
 ### LFSR
 
+LFSR provides fast, repeatable random sequences for games. Starting
+with the same seed produces the same sequence.
+
 | Call              | Returns       | What it does                                  |
 | ----------------- | ------------- | --------------------------------------------- |
 | `LFSR_SEED(seed)` | none          | Seed the byte or word generator.              |
-| `LFSR_NEXT()`     | `U8` or `U16` | Next pseudo-random byte or word.              |
-| `LFSR_RANGE(hi)`  | `U8`          | Pseudo-random value from 0 through `hi`.      |
+| `LFSR_NEXT()`     | `U8` or `U16` | Next repeatable random byte or word.          |
+| `LFSR_RANGE(hi)`  | `U8`          | Repeatable random value from 0 through `hi`.  |
 
-The seed type selects the byte or word generator. The destination type selects
-which `LFSR_NEXT` to use. Use `U8(...)` or `U16(...)` when a literal would be
-unclear. The byte and word generators have independent state. `LFSR_RANGE`
-uses the byte generator.
+`LFSR_SEED` and `LFSR_NEXT` have `U8` and `U16` forms. The seed or result
+type chooses the form. Use `U8(...)` or `U16(...)` when a literal leaves
+the type unclear. The two forms keep separate sequences. `LFSR_RANGE`
+uses the `U8` form.
 
 ### Collision
 
 | Call                                                   | Returns | What it does                         |
 | ------------------------------------------------------ | ------- | ------------------------------------ |
-| `POINT_IN_RECT(px, py, x, y, w, h)`                    | `U8`    | `1` if the point is inside the rectangle. |
+| `RECT_CONTAINS_POINT(x, y, w, h, px, py)`              | `U8`    | `1` if the rectangle contains the point.  |
 | `RECT_OVERLAP(x1, y1, w1, h1, x2, y2, w2, h2)`         | `U8`    | `1` if two rectangles overlap.       |
-| `AABB_HIT(x1, y1, w1, h1, x2, y2, w2, h2)`             | `U8`    | `1` if two rectangles overlap.       |
 
-Rectangles include their top-left point and exclude `x + w`, `y + h`.
+Rectangles include their top left point and exclude `x + w`, `y + h`.
 
 ### Sprites
 
 | Name / call                      | What it does                         |
 | -------------------------------- | ------------------------------------ |
-| `SPRITE_AVAILABLE`               | Defined as `1` when the target exposes `SPRITE_*`. |
-| `SPRITE_KIND`                    | `SPRITE_KIND_HW` or `SPRITE_KIND_POLYFILL`. |
-| `SPRITE_SURFACE_KIND`            | `SPRITE_SURFACE_KIND_PIXEL`, `_CELL`, or `_KERNEL`. |
+| `SPRITE_SUPPORTED`               | `TRUE` when the target supports the `SPRITE_*` API. |
+| `SPRITE_KIND`                    | `SPRITE_KIND_HW` for the target's own sprites, or `SPRITE_KIND_POLYFILL` for sprites drawn by crustyBASIC. |
+| `SPRITE_SURFACE_KIND`            | `SPRITE_SURFACE_KIND_PIXEL` uses pixels, `_CELL` uses cells, and `_KERNEL` follows the target page. |
 | `SPRITE_COLOR_MODEL`             | How the target colors a sprite: `SPRITE_COLOR_MODEL_PER_PIXEL`, `_PER_CELL`, or `_POSITIONAL`. |
-| `SPRITE_MAX_COUNT`               | Number of portable sprite slots.     |
-| `SPRITE_WIDTH` / `SPRITE_HEIGHT` | Sprite footprint in the target coordinate system. |
-| `SPRITE_DATA_BYTES`              | Target native byte count copied by `SPRITE_DATA`. |
-| `SPRITE_COLORS_PER_SPRITE`       | Visible nontransparent color codes in the active sprite mode. |
+| `SPRITE_MAX_COUNT`               | Number of available sprite IDs.      |
+| `SPRITE_WIDTH` / `SPRITE_HEIGHT` | Sprite size in the target's coordinate system. |
+| `SPRITE_DATA_BYTES`              | Number of bytes copied by `SPRITE_DATA`. |
+| `SPRITE_COLORS_PER_SPRITE`       | Number of visible, nontransparent color codes in the current sprite mode. |
 | `SPRITE_X_MIN` / `SPRITE_X_MAX`  | Fully visible horizontal position range. |
 | `SPRITE_Y_MIN` / `SPRITE_Y_MAX`  | Fully visible vertical position range. |
-| `SPRITE_X_GRANULARITY` / `SPRITE_Y_GRANULARITY` | Coordinate snap size. |
-| `SPRITES_BEGIN()` / `SPRITES_RESET()` | Initialize or reset sprite state. |
-| `SPRITE_HAS_DATA(id)`            | `1` when the slot accepts `SPRITE_DATA`. |
-| `SPRITE_COLOR_SHARED(id)`        | `1` when changing the slot color can affect another sprite. |
-| `SPRITE_NAME(id)`                | Target identifier for the slot, or a generic name. |
-| `SPRITE_DATA(id, addr)`          | Install target-native sprite data.   |
-| `SPRITE_DATA_8X8(id, addr)`      | Install an 8-byte MSB-left 1bpp shape. |
-| `SPRITE_DATA_TILES(id, w, h, addr)` | Install tile-shaped sprite data where supported. |
-| `SPRITE_HAS_INVERT`              | `1` when `SPRITE_INVERT` is supported. |
-| `SPRITE_INVERT(id)`              | Invert the target-native sprite data loaded in the slot. |
+| `SPRITE_X_GRANULARITY` / `SPRITE_Y_GRANULARITY` | Steps used when snapping sprite coordinates. |
+| `SPRITES_ON()`                     | Prepare sprites for use without clearing the active display. |
+| `SPRITES_RESET()`                  | Return all sprites to their starting settings. |
+| `SPRITE_HAS_DATA(id)`            | `1` when the sprite ID accepts `SPRITE_DATA`. |
+| `SPRITE_COLOR_SHARED(id)`        | `1` when changing this sprite's color can affect another sprite. |
+| `SPRITE_NAME(id)`                | Target name for the sprite ID, or a generic name. |
+| `SPRITE_DATA(id, addr)`          | Install data in the target's sprite format. |
+| `SPRITE_DATA_8X8(id, addr)`      | Install an 8 byte, one color 8x8 shape. Each byte is one row, with its highest bit on the left. |
+| `SPRITE_DATA_TILES(id, w, h, addr)` | Install sprite data made from tiles where supported. |
+| `SPRITE_INVERT_SUPPORTED`              | `TRUE` when `SPRITE_INVERT` is supported. |
+| `SPRITE_INVERT(id)`              | Invert the data loaded for the sprite. |
 | `SPRITE_ALIGN_X(x)` / `SPRITE_ALIGN_Y(y)` | Snap a coordinate to the target's sprite grid. |
 | `SPRITE_MOVE(id, x, y)`          | Move a sprite.                       |
 | `SPRITE_COLOR(id, color)`        | Set sprite color where supported.    |
-| `SPRITE_BG(color)`               | Set the backdrop color the sprite color blends against on per-cell-color targets. No-op elsewhere. |
-| `SPRITE_COLOR2(color)` / `SPRITE_COLOR3(color)` | Extra shared sprite colors on multicolor-capable targets. No-op elsewhere. |
-| `SPRITE_FLIP_X(id, flag)` / `SPRITE_FLIP_Y(id, flag)` | Set hardware X/Y flip where supported. |
-| `SPRITE_EXPAND(id, x_double, y_double)` | Set hardware expansion where supported. |
-| `SPRITE_PRIORITY(id, behind_bg)` | Set hardware foreground/background priority where supported. |
-| `SPRITE_PALETTE(id, palette)` | Select a hardware sprite palette where supported. |
-| `SPRITE_PALETTE_SET(palette, c0, c1, c2)` | Set hardware sprite palette colors where supported. |
+| `SPRITE_BG(color)`               | Set the background color used where a sprite overlaps cells that share colors. Does nothing elsewhere. |
+| `SPRITE_COLOR2(color)` / `SPRITE_COLOR3(color)` | Set extra shared colors on targets with multicolor sprites. Does nothing elsewhere. |
+| `SPRITE_FLIP_X(id, flag)` / `SPRITE_FLIP_Y(id, flag)` | Turn horizontal or vertical flipping on or off where supported. |
+| `SPRITE_EXPAND(id, x_double, y_double)` | Double a sprite's width or height where supported. |
+| `SPRITE_PRIORITY(id, behind_bg)` | Choose whether a sprite appears in front of or behind the background where supported. |
+| `SPRITE_PALETTE(id, palette)` | Select a sprite palette where supported. |
+| `SPRITE_PALETTE_SET(palette, c0, c1, c2)` | Set sprite palette colors where supported. |
+| `SPRITE_PALETTE_SET(palette, index, RGB(r, g, b))` | Set one visible sprite palette color where supported. |
+| `SPRITE_PALETTE_RGB_SUPPORTED` | `TRUE` when the RGB form of `SPRITE_PALETTE_SET` is supported. |
 | `SPRITE_SHOW(id)` / `SPRITE_HIDE(id)` | Show / hide a sprite.          |
 | `SPRITE_HIT(id)` | Sprite/sprite collision flag where supported, otherwise `0`. |
 | `SPRITE_HIT_BG(id)` | Sprite/background collision flag where supported, otherwise `0`. |
 | `SPRITES_OFF()`                  | Hide or disable all sprites.          |
-| `SPRITES_FLUSH()`                | Commit staged sprite changes where needed. |
+| `SPRITES_FLUSH()`                | Apply any waiting sprite changes.   |
 
-`SPRITE_MAX_COUNT` includes every movable sprite object exposed by the
-target. Some targets have limited slots that cannot load custom data or
-that share color hardware. Use `SPRITE_HAS_DATA` and
-`SPRITE_COLOR_SHARED` when selecting slots dynamically. `SPRITE_NAME`
-returns the target's identifier when one exists and otherwise returns a
+`SPRITE_MAX_COUNT` is the total number of movable sprites. On some
+targets, certain sprite IDs cannot load custom data or must share
+colors. Use `SPRITE_HAS_DATA` and `SPRITE_COLOR_SHARED` when choosing an
+ID. `SPRITE_NAME` returns the target's name for that sprite, or a generic
 name such as `SPRITE0`.
 
-The size and bounds describe the footprint in the target coordinate
-system, not necessarily the number of encoded color cells. A VIC-II
-multicolor sprite still reports a 24x21 footprint while each row holds 12
-double wide color cells. Plus/4 multicolor sprite coordinates use its
-160 pixel bitmap and report a 4x8 footprint.
+The size and position limits use the target's screen coordinates. The
+target page explains its sprite data shape and any differences between
+sprite data and screen size.
 
-`SPRITE_DATA` copies target native bytes without converting them.
-Changing modes changes how the target reads those bytes, so use a shape
-made for that mode. `SPRITE_DATA_8X8` is the portable one bit 8x8 form
-where the target supports it.
+`SPRITE_DATA` copies bytes in the target's own sprite format without
+converting them. A different sprite mode may read those bytes
+differently, so use data made for the chosen mode. `SPRITE_DATA_8X8`
+uses the portable one bit 8x8 format where supported.
 
-`SPRITE_COLOR_MODEL` tells a portable program how the target carries
-sprite color so it can adapt to "attribute clash":
+When `SPRITE_PALETTE_RGB_SUPPORTED` is `TRUE`, the RGB form of
+`SPRITE_PALETTE_SET` changes one visible palette entry. `index` starts
+at zero and does not include the transparent entry.
 
-- `SPRITE_COLOR_MODEL_PER_PIXEL` - each pixel keeps its own color (no
-  clash): hardware sprites and per-pixel bitmaps.
-- `SPRITE_COLOR_MODEL_PER_CELL` - color is shared per attribute cell, so
-  a sprite recolors the background pixels in any cell it overlaps. The
-  runtime corrects this so a cell takes the sprite color only while a
-  sprite currently overlaps it and reverts afterward; `SPRITE_BG`
-  selects the backdrop color the sprite blends against.
-- `SPRITE_COLOR_MODEL_POSITIONAL` - color is chosen by pixel position,
-  so `SPRITE_COLOR` is best effort.
+`SPRITE_COLOR_MODEL` explains how sprite colors behave:
 
-`SPRITE_BG`, `SPRITE_COLOR2`, and `SPRITE_COLOR3` are always callable and
-are no-ops on targets whose color model does not use them. On supported
-targets, `@OPTION MULTICOLOR_SPRITE TRUE` selects multicolor for every
-sprite managed through the portable API. `FALSE` selects standard mode.
-Target controls may still mix modes per sprite.
+- `SPRITE_COLOR_MODEL_PER_PIXEL`: pixels can keep their own colors.
+- `SPRITE_COLOR_MODEL_PER_CELL`: cells share colors, so a sprite can
+  change the background color in cells it overlaps. `SPRITE_BG` chooses
+  the color restored behind it.
+- `SPRITE_COLOR_MODEL_POSITIONAL`: color depends on screen position, so
+  `SPRITE_COLOR` may not produce the exact requested color.
 
-Multicolor shapes use two bit color codes with `00` transparent. The
-other codes use `SPRITE_COLOR`, `SPRITE_COLOR2`, and `SPRITE_COLOR3` as
-documented by each target. `SPRITE_BG` selects the backdrop on software
-targets that blend sprite and bitmap colors.
+You can always call `SPRITE_BG`, `SPRITE_COLOR2`, and `SPRITE_COLOR3`.
+They do nothing when the target's color model does not use them. On
+supported targets, `@OPTION MULTICOLOR_SPRITE TRUE` puts every portable
+sprite in multicolor mode. `FALSE` uses standard mode. Target specific
+controls may still mix modes between sprites.
 
-Software sprite targets also accept an active slot count hint:
+Multicolor shapes use two bit color codes, with `00` as transparent.
+The other codes use `SPRITE_COLOR`, `SPRITE_COLOR2`, and
+`SPRITE_COLOR3` as described on the target page. When sprites are drawn
+into a bitmap, `SPRITE_BG` chooses the background used when sprite and
+bitmap colors are combined.
+
+Programs that use only the first few sprites drawn by crustyBASIC can
+set an active count:
 
 ```basic
 @OPTION SOFT_SPRITE_ACTIVE_COUNT 1
 ```
 
-This is optional. It limits the software sprite reset, flush, and off
-walks to the first N slots while keeping `SPRITE_MAX_COUNT` as the target
-capacity. Use it only when the program never uses sprite ids greater than
-or equal to N.
+This setting reduces the work done by sprite updates to the first `N`
+sprite IDs. `SPRITE_MAX_COUNT` still reports the target's full capacity.
+Do not use sprite ID `N` or higher when this option is set.
 
 ## Core builtins
 
 Numeric helpers, bitwise and logical operators, `REAL` helpers, and
-string functions are part of the core language. They do not require
-an API include. See [LANGUAGE.md](LANGUAGE.md#core-builtins).
+string functions are part of the core language. See
+[LANGUAGE.md](LANGUAGE.md#core-builtins).
 
 ## REAL floating point
 
@@ -1052,14 +1508,17 @@ Y! = LOG(X!)
 PRINT STR(Y!)
 ```
 
-Declaring `REAL` on a target without FP is a compile error.
+Declaring `REAL` on a target without floating point support is a compile
+error.
+
 Core `REAL` functions are documented in
 [LANGUAGE.md](LANGUAGE.md#real-functions).
 
-## Fixed Point
+## Fixed point
 
-Unsigned fixed-point helpers use Q8.8 values stored in `U16`: the high
-byte is the integer part and the low byte is the fractional part.
+These helpers provide fractional values without using `REAL`. They store
+the value in a `U16`: the high byte is the whole number part and the low
+byte is the fraction. This format is called unsigned Q8.8.
 
 | Name | What it does |
 | ---- | ------------ |
@@ -1077,51 +1536,56 @@ byte is the integer part and the low byte is the fractional part.
 
 ### ADDR
 
-`ADDR(name)`, `ADDR name`, and `&name` evaluate to a `U16` address.
-They accept addressable storage, array elements, string literals, and
-no-argument `PROC`s in fixed memory. Use them to pass an
-address to `MEMMOVE`, `MEMFILL`, `DPOKE`, callback installers such as
-`FRAME_INSTALL`, or inline `ASM`.
+`ADDR(name)`, `ADDR name`, and `&name` return an address using the size
+needed by the target. Store it in a variable declared `AS ADDR`. These
+forms work with variables, array elements, string literals, and no
+argument PROCs outside `@BANK`. Use them with `MEMMOVE`, `MEMFILL`,
+`DPOKE`, calls that need a PROC address such as `FRAME_INSTALL`, or
+inline `ASM`.
 
 ```basic
 BUF(255) AS U8
 WORDS(15) AS U16
 NAMES$(3) AS STRING * 16
 
-PTR## = ADDR BUF
-PTR## = ADDR(BUF)
-PTR## = &BUF
-PTR## = ADDR BUF[10]
-PTR## = &BUF[10]
-PTR## = ADDR WORDS[3]
-PTR## = ADDR(WORDS(3))
-PTR## = ADDR(NAMES$(2))
-PTR## = ADDR "LITERAL"
+PTR AS ADDR
+
+PTR = ADDR BUF
+PTR = ADDR(BUF)
+PTR = &BUF
+PTR = ADDR BUF[10]
+PTR = &BUF[10]
+PTR = ADDR WORDS[3]
+PTR = ADDR(WORDS(3))
+PTR = ADDR(NAMES$(2))
+PTR = ADDR "LITERAL"
 
 PROC FOO
     PRINT "IN PROC"
 ENDPROC
 
-PROC_PTR## = ADDR FOO
+PROC_PTR AS ADDR = ADDR FOO
 ```
 
-`ADDR(ARR(I))` returns the address of the indexed element, not the start of
-the array. For a string array element, the address points at that element's
-string descriptor. Characters begin after the descriptor: +1 for narrow
-strings and +2 for strings with capacity over 255. The element offset uses
-the same target and capacity stride as string array loads and stores.
+`ADDR "LITERAL"` returns the address of read only text. Do not write to
+that address. The bytes use the same target encoding as a `PRINT`
+string, including `{NAME}` control code escapes and placeholders. See
+[Literals](LANGUAGE.md#literals).
 
-For a string variable, `ADDR(S$)` points at the length byte (or two
-bytes if the string was declared with capacity over 255); the
-actual characters start right after.
+`ADDR(ARR(I))` returns the address of that element, not the start of the
+array.
 
-`ADDR(FOO)` on a `PROC` returns its entry address.
-The `PROC` must take no parameters and must not live in a
-switched bank.
+`ADDR(S$)` returns the address of the string's first character, so it
+pairs directly with `MEMMOVE`, `MEMFILL`, and `BIND`. The same holds for
+a string array element such as `ADDR(NAMES$(2))`. The address does not
+include the string length; use `LEN` to read it.
+
+`ADDR(FOO)` returns the starting address of a `PROC`. The `PROC` must
+take no parameters and cannot be in a switched bank.
 
 `ADDR` can take the address of `DIM` storage, typed `CONST` arrays, and
-eligible PROCs. It cannot take the address of a scalar `CONST` or a
-`PROC` parameter.
+no argument PROCs outside `@BANK`. It cannot take the address of a scalar
+`CONST` or a `PROC` parameter.
 
 ### PEEK, POKE, DPEEK, DPOKE
 
@@ -1134,8 +1598,8 @@ DPOKE($2020, $ABCD)
 
 - `PEEK` reads one byte from an address.
 - `POKE` writes one byte to an address.
-- `DPEEK` reads two bytes from an address and returns a 16-bit value: low byte first, high byte second.
-- `DPOKE` writes a 16-bit value to an address: low byte first, high byte second.
+- `DPEEK` reads two bytes from an address and returns a 16 bit value: low byte first, high byte second.
+- `DPOKE` writes a 16 bit value to an address: low byte first, high byte second.
 
 ### MEMMOVE, MEMFILL, MEMCOMPARE
 
@@ -1156,8 +1620,39 @@ It does not preserve overlapping source and destination ranges.
 `MEMCOMPARE(a, b, count)` returns `1` when two byte ranges match,
 otherwise `0`.
 
+None of these check addresses or counts. A bad address or an oversized
+count reads or writes whatever is there.
+
 `MEMSIZE_TEXT(size_kb)` returns a compact `K` or `MB` string for a KB
 count, such as `64K` or `1 MB`.
+
+### INCLUDE_FILE
+
+`@INCLUDE_FILE` packages a file unchanged so the program can open it
+later.
+
+```basic
+@INCLUDE_FILE TITLE_FILE "assets/TITLE.KLA"
+
+OK = IMAGE_LOAD_DISPLAY(TITLE_FILE)
+```
+
+crustyBASIC creates `CONST TITLE_FILE = "TITLE.KLA"` using the
+identifier exactly as written. The file is looked for next to your source
+first, then next to wherever you run crustyBASIC, and the case you type
+does not have to match the case on disk.
+
+The constant holds the filename on its own, without the path. Old
+machines are fussy about filenames, so crustyBASIC adjusts it to suit
+the target, which usually means uppercase and sometimes shorter. It
+always ends up the same as the name the file is saved under, so a load
+call that uses the constant finds it. The target's page says what its
+filenames look like.
+
+The file is written beside the program and added to its disk image when
+one is created. Its bytes are not converted or embedded in the program.
+Use `@INCLUDE_BIN` to embed bytes, or `@INCLUDE_IMAGE` and
+`@INCLUDE_AUDIO` to convert image and audio files.
 
 ### INCLUDE_BIN
 
@@ -1171,54 +1666,54 @@ MEMMOVE ADDR CHARMAP, $3000, CHARMAP_LEN
 PRINT HEX(CHARMAP_END)
 ```
 
-For `@INCLUDE_BIN LABEL, "path"`, the compiler creates:
+For `@INCLUDE_BIN LABEL, "path"`, crustyBASIC creates:
 
 | Name | What it is |
 | ---- | ---------- |
 | `LABEL` | `CONST` `U8` array containing the bytes. |
 | `LABEL_LEN` | Byte count as `U16`. |
 | `LABEL_LAST` | Last valid array index as `U16`. |
-| `LABEL_END` | No-argument `PROC` returning `ADDR LABEL + LABEL_LEN`. |
+| `LABEL_END` | No argument `PROC` returning `ADDR LABEL + LABEL_LEN`. |
 
 Paths are resolved relative to the source file first, then relative to
-the project root. `OFFSET` and `COUNT` accept decimal, `$` hex, and
-`0x` hex literals.
+the folder where crustyBASIC was started. `OFFSET` and `COUNT` accept
+decimal, `$` hex, and `0x` hex literals.
 
-`@INCLUDE_BIN` currently emits normal const data. `AT` placement and
-`@BANK PRG` placement are reserved for a later compiler placement pass.
+Inside an `@BANK N` block, the array and `LABEL_END` PROC go into bank
+`N`.
+
+The bytes are embedded exactly as they are on disk, with no conversion
+or checking. It can embed CBA or IMG files already created by
+`cb-audio` or `cb-image`. To convert a WAV, SID, PNG, or PCX while
+building, use `@INCLUDE_AUDIO` or `@INCLUDE_IMAGE` instead.
 
 ### EXTMEM
 
-EXTMEM moves blocks between local RAM and target extended memory.
-Targets may back it with a DMA peripheral such as the C64 REU or with a
-banked RAM window such as the Commander X16.
+EXTMEM moves blocks between the program's normal RAM and extra memory
+provided by the machine or an expansion device.
 
 The EXTMEM address is `BANK:XADDR`, where `BANK` is `U8` and `XADDR`
 is `U16`. `COUNT = 0` means 65536 bytes.
 
 | Name | What it does |
 | ---- | ------------ |
-| `EXTMEM_AVAILABLE()` | `1` when extended memory responds to a runtime probe, otherwise `0`. |
-| `EXTMEM_STASH(count, localaddr, xaddr, bank)` | Copy local RAM to extended memory. |
-| `EXTMEM_FETCH(count, localaddr, xaddr, bank)` | Copy extended memory to local RAM. |
-| `EXTMEM_SWAP(count, localaddr, xaddr, bank)` | Exchange local and extended memory. |
+| `EXTMEM_SUPPORTED` | `TRUE` when the target implements the portable extra-memory interface. |
+| `EXTMEM_AVAILABLE()` | `1` when extra memory is currently available. |
+| `EXTMEM_STASH(count, localaddr, xaddr, bank)` | Copy local RAM to extra memory. |
+| `EXTMEM_FETCH(count, localaddr, xaddr, bank)` | Copy extra memory to local RAM. |
+| `EXTMEM_SWAP(count, localaddr, xaddr, bank)` | Exchange local and extra memory. |
+| `EXTMEM_FILL(count, xaddr, bank, value)` | Fill extra memory with one byte value. |
 | `EXTMEM_VERIFY(count, localaddr, xaddr, bank)` | Return `1` when the two ranges match. |
-| `EXTMEM_POKE(bank, xaddr, value)` | Write one byte to extended memory. |
-| `EXTMEM_PEEK(bank, xaddr)` | Read one byte from extended memory. |
-| `EXTMEM_DETECT_KB()` | Probe the visible extended memory size in KB. |
-| `EXTMEM_HAS_KB(size_kb)` | Return `1` when at least that size is visible. |
-| `EXTMEM_PROBE_BANK(id)` | Target probe bank for a size step. |
-| `EXTMEM_PROBE_KB(id)` | Size represented by a probe step. |
-| `EXTMEM_BANK_OK(id)` | Return `1` when a probe bank does not alias earlier banks. |
-| `EXTMEM_BANK_KB` | KB represented by one external bank unit. |
+| `EXTMEM_POKE(bank, xaddr, value)` | Write one byte to extra memory. |
+| `EXTMEM_PEEK(bank, xaddr)` | Read one byte from extra memory. |
+| `EXTMEM_DETECT_KB()` | Detect the available extra memory size in KB. |
+| `EXTMEM_HAS_KB(size_kb)` | Return `1` when at least that much extra memory is available. |
+| `EXTMEM_BANK_KB` | Size of one `BANK` step in KB. |
 
-Low level code can call `EXTMEM_OP(op, count, localaddr, xaddr, bank)`
-with `EXTMEM_OP_STASH`, `EXTMEM_OP_FETCH`, `EXTMEM_OP_SWAP`, or
-`EXTMEM_OP_VERIFY`. Most programs should use the named calls instead.
-
-Guard portable code with `IF EXTMEM_AVAILABLE() THEN` before
-transferring. Targets without an EXTMEM provider return `0` from
-`EXTMEM_AVAILABLE()`; transfer calls require a target provider.
+Use `EXTMEM_SUPPORTED` with `@IF` or `@REQUIRES` when a program requires
+the interface. Check `EXTMEM_AVAILABLE()` before transferring data because
+supported expansion hardware may not be attached. Without EXTMEM support,
+the probe returns `0` and the transfer calls are unavailable.
 
 ### BIND
 
@@ -1233,26 +1728,26 @@ VIEW$ = "HELLO"
 MID(VIEW$, 10, 1) = CHR(255)
 ```
 
-`BIND` redirects a string's characters to your own writable memory.
-The string still cannot grow past its declared capacity. No hidden length
-byte is placed before the bound address.
+`BIND` makes a string use an area of memory that you provide. The string
+still cannot grow past its declared size. It can use `COUNT` bytes
+starting at `ADDR`.
 
-- The target must be a string variable.
-- `ADDR` and `COUNT` are treated as 16-bit values.
+- The value before `TO` must be a string variable.
+- `ADDR` and `COUNT` are treated as 16 bit values.
 - If `COUNT` is a fixed number, it cannot be larger than the string's declared size.
-- Must point at writable RAM.
-- Strings declared up to 255 bytes (`STRING * 255` or smaller) are portable.
+- `ADDR` must point at writable RAM.
 
 ## Events
 
-The portable event API exposes asynchronous target events. On targets
-with `EVENT_INTERRUPT_CALLBACKS = 1`, subscribed handlers run from an
-interrupt or OS callback and must be no argument `@ASYNC` PROCs.
+The event API lets a program respond to target events such as sprite
+collisions or a light pen. When `EVENT_INTERRUPT_CALLBACKS` is `TRUE`, a
+handler may interrupt normal program flow. Those handlers must be no
+argument `@ASYNC` PROCs.
 
 | Name | What it does |
 | --- | --- |
-| `EVENT_AVAILABLE` | `1` when the active target has an event provider. |
-| `EVENT_INTERRUPT_CALLBACKS` | `1` when handlers are called from interrupt context. |
+| `EVENT_SUPPORTED` | `TRUE` when the target supports events. |
+| `EVENT_INTERRUPT_CALLBACKS` | `TRUE` when handlers may interrupt normal program flow. |
 | `EVENT_SPRITE_SPRITE` | Sprite to sprite collision event mask. |
 | `EVENT_SPRITE_BG` | Sprite to background collision event mask. |
 | `EVENT_LIGHTPEN` | Light pen event mask. |
@@ -1260,10 +1755,13 @@ interrupt or OS callback and must be no argument `@ASYNC` PROCs.
 | `EVENT_UNSUBSCRIBE(mask)` | Remove handlers and disable those event bits. |
 | `EVENT_ENABLE(mask)` | Enable one or more event bits without changing handlers. |
 | `EVENT_DISABLE(mask)` | Disable one or more event bits. |
-| `EVENT_PENDING()` | Return latched pending event bits. |
+| `EVENT_PENDING()` | Return event bits that have been recorded but not cleared. |
 | `EVENT_ACK(mask)` | Clear pending event bits. |
 
-On targets without an event provider these calls compile as no-ops, and
+Use one event value as `mask`, or add event values together to select
+more than one.
+
+On targets without event support, these calls do nothing and
 `EVENT_PENDING()` returns `0`.
 
 ## CALL
@@ -1272,26 +1770,65 @@ On targets without an event provider these calls compile as no-ops, and
 CALL $2000
 ```
 
-`CALL` runs the machine-code routine at a fixed address. How you pass
+`CALL` runs the machine code routine at a fixed address. How you pass
 values in, what registers it changes, and how it returns values depend
 on the machine and the routine you are calling.
 
 ## USR
 
-`USR(...)` is dialect specific - the calling convention follows the
-host BASIC. See [`targets/`](targets/) for the exact form.
+`USR(...)` is dialect specific. Its syntax and value passing follow the
+selected BASIC dialect. See the USR section on the selected
+[target page](targets/) for the exact form.
 
-For CrustyBASIC code, use `CALL` for a simple fixed-address machine-code routine,
-or inline `ASM` when you need to pass values or get a result.
+For crustyBASIC code, use `CALL` for a simple machine code routine at a
+fixed address. Use inline `ASM` when you need to pass values or get a
+result.
+
+## UCI
+
+The C64 Ultimate system enables UCI support automatically. A stock C64 fitted
+with a 1541 Ultimate-II+ can enable it with
+`@OPTION C64_ULTIMATE_SUPPORTED TRUE`. The option is compile-time support;
+`UCI_AVAILABLE()` reads the UCI identification register at runtime.
+
+| Call | What it does |
+| --- | --- |
+| `UCI_AVAILABLE()` | `1` when the Ultimate Command Interface responds at runtime. |
+
+## FujiNet
+
+Targets with FujiNet support define `FUJINET_SUPPORTED` and
+`FUJINET_TRANSPORT`. The calls here send commands and exchange data with
+the adapter.
+
+| Name / call | What it does |
+| --- | --- |
+| `FUJINET_SUPPORTED` | `TRUE` when FujiNet support is available. |
+| `FUJINET_TRANSPORT` | How the target communicates with FujiNet. |
+| `FUJINET_TRANSPORT_NONE` / `FUJINET_TRANSPORT_SIO` / `FUJINET_TRANSPORT_DRIVEWIRE` | Transport constants. |
+| `FUJINET_STATUS_OK` / `FUJINET_STATUS_IO_ERROR` / `FUJINET_STATUS_UNSUPPORTED` | Status constants. |
+| `FUJINET_DIR_NONE` / `FUJINET_DIR_READ` / `FUJINET_DIR_WRITE` | Command direction constants. |
+| `FUJINET_BUFFER_MAX` | Maximum shared buffer size. |
+| `FUJINET_STATUS()` | Return the current adapter status. |
+| `FUJINET_COMMAND(device, command, aux1, aux2, direction, count)` | Send one adapter command for the current target. |
+| `FUJINET_EXCHANGE(device, command, aux1, aux2, direction, write_count, read_count)` | Send request bytes and optionally read reply bytes. |
+| `FUJINET_BUFFER_CLEAR()` | Clear the shared command buffer. |
+| `FUJINET_BUFFER_SET_LEN(count)` / `FUJINET_BUFFER_LEN()` | Set or read the active buffer length. |
+| `FUJINET_BUFFER_POKE(offset, value)` / `FUJINET_BUFFER_PEEK(offset)` | Write or read one shared buffer byte. |
+| `FUJINET_BUFFER_WRITE_STRING(data$)` / `FUJINET_BUFFER_READ_STRING(out data$)` | Write or read the buffer as a string. |
+
+The target pages list the FujiNet device and command values used by
+`FUJINET_COMMAND` and `FUJINET_EXCHANGE`.
 
 ## Hardware registers
 
-Targets expose chip registers as names. The target docs under
-[`targets/`](targets/) list chip namespaces and register details.
+Target pages under [`targets/`](targets/) list named addresses for their
+built in chips. Use those names with `PEEK`, `POKE`, or inline `ASM` as
+described on the target page.
 
 ## Target docs
 
-Per-target screen sizes, input counts, image formats, tick sources,
-file providers, chip namespaces, and system caveats live in the target
-docs under [`targets/`](targets/). Portable programs should prefer the
-capability constants and runtime availability probes documented above.
+The pages under [`targets/`](targets/) list each target's screen sizes,
+input counts, image formats, timing, file support, chip names, and
+system notes. Check each API section's `*_AVAILABLE` values when a
+program must work on more than one target.

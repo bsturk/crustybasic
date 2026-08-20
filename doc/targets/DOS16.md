@@ -17,7 +17,9 @@ command line target selection and dialects, see
 
 NASM is the supported assembler. The optional `.img` artifact is a
 mountable 360K FAT12 disk image when the DOS floppy helper is
-configured.
+configured. Files named by `@INCLUDE_FILE`, `@INCLUDE_IMAGE`, and
+`@INCLUDE_AUDIO` go on that image, uppercased and trimmed to the DOS 8
+character name plus 3 character extension.
 
 ## Basics
 
