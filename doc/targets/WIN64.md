@@ -63,7 +63,7 @@ In UI window mode, `PRINT` text is drawn in the GDI window, `KEY` and
 the process on the next message pump or frame wait.
 
 Console mode remains useful for text only programs and command line
-tools. GDI examples that should not show a console window should set
+tools. GDI programs that should not show a console window should set
 `WIN64_CONSOLE_WINDOW FALSE`.
 
 ## Text And Cells
@@ -79,7 +79,7 @@ window size. Public dimensions cap at 255 cells because text coordinates are
 U8; clearing and cursor tracking still use the full Windows dimensions.
 
 UI window mode draws text into the GDI window using 8x16 cells. The
-text grid is still 80x25. `TEXT_COLOR`, `CELL_COLORS`, and per-cell
+text grid is still 80x25. `COLOR`, `CELL_COLORS`, and per-cell
 `CELL_COLOR` are available;
 cell attributes are not.
 
@@ -108,11 +108,26 @@ The default graphics mode is `BITMAP_HIRES`.
 | `BITMAP_MULTICOLOR` | not supported | | |
 | `CELL_MULTICOLOR` | not supported | | |
 
-`GDI_COLOR(r, g, b)` sets an arbitrary RGB foreground color for
-GDI drawing. `GDI_FILL_RECT(x, y, w, h)` fills a rectangle with
+`DISPLAY_MIXED` opens the GDI window and directs cell output there in all
+three bitmap modes. No source option is needed. It uses an 80x25 text
+grid scaled to the bitmap, even when a console window is also open.
+Text rows can start anywhere they fit; four rows are guaranteed at
+starting rows 0 through 21.
+
+Use `CELL_PRINT`, `CELL_COLOR`, and `CELL_COLORS` for the text region.
+`CELL_CLS` clears only its selected rows. Text survives bitmap clearing,
+frame updates, and window repainting. `DISPLAY` leaves mixed mode.
+Ordinary `PRINT` keeps its usual output destination. Use
+`WIN64_CONSOLE_WINDOW FALSE` to start without a console window. Closing
+the GDI window during mixed mode ends the program.
+
+`COLOR_RGB(r, g, b)` sets the graphics foreground using channels from
+0 through 255. It affects subsequent bitmap drawing, leaving existing
+pixels, the background, and text colors unchanged. `GDI_COLOR` uses the
+same operation. `GDI_FILL_RECT(x, y, w, h)` fills a rectangle with
 the current GDI foreground color.
 
-`GFX_CLS`, `GDI_FILL_RECT`, and other drawing calls update the buffered
+`CLS`, `GDI_FILL_RECT`, and other drawing calls update the buffered
 bitmap. `GFX_SWAP` publishes it immediately. `FRAME_WAIT` and blocking
 input calls also publish pending changes, so portable programs do not
 need a Windows-specific swap.
@@ -121,7 +136,7 @@ A typical bitmap frame loop is:
 
 ```basic
 DO
-	GFX_CLS
+	CLS
 	PLOT 10, 10
 	GFX_SWAP
 	FRAME_WAIT
@@ -136,26 +151,38 @@ Native image display supports:
 | --- | --- |
 | `IMAGE_FMT_WIN64_INDEXED` | 256x192, one palette index byte per pixel. |
 
-Images are linked into the program rather than loaded from Windows
-files at runtime. Runtime image file loading is not available.
+The converter accepts a 49152 byte raw index dump or indexed PNG/PCX.
+Converted images use RLE8 when it makes them smaller and otherwise keep
+the original bitmap. Images are linked into the program rather than
+loaded from Windows files at runtime. Runtime image file loading is not
+available.
+
+Image effects support wipes and slides in all four directions, 16 step RGB
+fades, and dissolves with 1, 2, 4, or 8 pixel blocks. Effects that read an
+image require unpacked data. Dissolves use the 256x192 image display;
+fade out works on any bitmap display.
 
 ## Sprites
 
-The Windows x64 target uses 8x8 software sprites drawn into the GDI
+The Windows x64 target uses tiled software sprites drawn into the GDI
 bitmap buffer.
 
 | Feature | Value |
 | --- | --- |
-| Sprite count | 16 |
-| Size | 8x8 |
-| Data bytes | 8 |
+| Sprite count | Selected by `SOFT_SPRITE_COUNT`, default 16 |
+| Size | Runtime `w * 8` by `h * 8` pixels |
+| Data bytes | 8 per tile |
 | X range | 0 through 632 |
 | Y range | 0 through 472 |
 | Collision | General sprite hit flag |
 | Flip, stretch, priority, palette | Not supported |
 
+Call `SPRITES_RESTORE` before changing the playfield beneath sprites.
+This keeps old backgrounds from covering the new drawing.
+
 Call `SPRITES_FLUSH` before `GFX_SWAP` to draw staged sprites into the
 buffered bitmap. `FRAME_WAIT` does not flush or publish sprites.
+`SPRITE_DATA_TILES` stores tiles left to right and then top to bottom.
 
 ## Tile
 
@@ -199,7 +226,7 @@ The button maps to Space, Enter, or Ctrl.
 ## Sound
 
 The portable sound calls mix four square wave voices through Windows
-audio. `PLAY_NOTE` continues until `SOUND_OFF` or `SILENCE`.
+audio without pausing the game when notes change. `PLAY_NOTE` continues until `SOUND_OFF` or `SILENCE`.
 `PLAY_NOTE_FOR`, `PLAY_NOTE_SHAPE_FOR`, and `BEEP` stop after their
 duration. `PLAY_NOTE_SHAPE` is accepted, but this target has only
 square wave output.
@@ -213,15 +240,14 @@ Win64 plays prepared PCM WAV assets through `PlaySoundA` with the
 memory, asynchronous, and no-default flags:
 
 - `AUDIO_PLAYBACK_MODEL = AUDIO_PLAYBACK_AUTOMATIC` - Windows advances
-  playback; `AUDIO_SERVICE` is a no-op.
+  playback without frame service work.
 - `AUDIO_FILE_SUPPORTED = TRUE` - `AUDIO_LOAD(path$)` preloads a prepared
   `.CBA` file into allocated memory and closes the file before
   returning.
 - `AUDIO_TARGET_FILE_SUPPORTED = TRUE` - the path overload also accepts a
   plain RIFF/WAVE PCM file.
-- `AUDIO_SOUND_SHARED = FALSE` - `PlaySound` is process wide, so AUDIO and
-  the generated sound voices replace each other; do not use portable
-  note calls while AUDIO is active.
+- `AUDIO_SOUND_SHARED = TRUE` - prepared audio and generated sound voices
+  can play together.
 
 Accepted WAV sources are `WAVE_FORMAT_PCM` with one or two channels and
 8- or 16-bit samples. RIFX, RF64, IEEE float, `WAVE_FORMAT_EXTENSIBLE`,
@@ -270,6 +296,17 @@ style listing. Paths are copied into a 260 byte native path buffer.
 The net provider uses Winsock client sockets. TCP and UDP connects are
 available through the portable net API. Socket handles use channels 1
 through 15, and the current net buffer is 512 bytes.
+
+## Error Handling
+
+Win64 supports `ON_ERROR` with label, line number, numeric, and no-argument
+`PROC` handlers. `ON_ERROR OFF`, `ERR()`, `RESUME`, and `RESUME_NEXT` are
+also supported.
+
+Console and UI text output failures and file open, close, read, and write
+failures enter the active handler. Unsupported file operations do the same.
+`ERR()` returns `FILE_UNSUPPORTED` (`255`) for these failures. End of file
+remains the normal `FILE_EOF` status and does not enter the handler.
 
 ## Examples
 

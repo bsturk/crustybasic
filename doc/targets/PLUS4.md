@@ -32,7 +32,7 @@ The default graphics mode is `BITMAP_HIRES`.
 Native TED mode constants are also available: `TED_TEXT`,
 `TED_BITMAP_HIRES`, `TED_BITMAP_MULTICOLOR`, and
 `TED_CELL_MULTICOLOR`. They select the same hardware modes and
-record the native value in `GFX_MODE`.
+record the native value in `DISPLAY_MODE`.
 
 Bitmap modes use the bitmap at `$4000`, luma attributes at `$0800`,
 and chroma attributes at `$0C00`.
@@ -49,6 +49,20 @@ foreground, background, and two shared multicolor text colors. The
 per-cell `CELL_COLOR col, row, color` sets that cell's foreground color.
 The other three colors are shared across the screen.
 
+## Scrolling
+
+`SCROLL_BEGIN 8, 8` enables smooth cell scrolling in both directions.
+Use zero for either step to disable that axis. The backing screen is
+40x25 cells; scrolling reduces the visible area to 38 columns and 24 rows
+when both axes are enabled.
+
+Scrolling uses the normal text screen and a second screen at `$6000-$67FF`,
+which is reserved automatically. Set the cell colors before `SCROLL_BEGIN`.
+Individual cell colors do not scroll. Bitmap scrolling and fixed regions
+are not supported.
+
+See [`scroll.cbs`](../../examples/__portable__/scroll.cbs).
+
 ## Images
 
 Native image display supports `IMAGE_FMT_TED_HIRES` and
@@ -56,21 +70,33 @@ Native image display supports `IMAGE_FMT_TED_HIRES` and
 (10050 bytes, load address `$7800`). KERNAL-backed runtime image loading
 is available.
 
+Both formats support wipes, slides, and eight step fades. Effects use
+unpacked images in memory; fade out works on the displayed bitmap.
+
 ## Sprites
 
 TED has no hardware sprites. The portable API draws software sprites
 over the bitmap:
 
-| `MULTICOLOR_SPRITE` | Shape | Visible colors | X range | Data |
+| `SPRITE_DEFAULT_MODE` | Shape | Visible colors | X range | Data |
 | --- | --- | --- | --- | --- |
-| `FALSE` (default) | 8x8 one bit | 1 | 0 through 312 | 8 bytes |
-| `TRUE` | 4x8 two bit | 3 | 0 through 156 | 8 bytes |
+| `SPRITE_MODE_HIRES` (default) | 8x8 one bit | 1 | 0 through 312 | 8 bytes |
+| `SPRITE_MODE_MULTICOLOR` | 4x8 two bit | 3 | 0 through 156 | 8 bytes |
 
 `SPRITE_DATA` copies target native bytes without conversion. In
 multicolor mode each byte holds four logical pixels. The software path
 treats `00` as transparent, `01` as `SPRITE_COLOR2`, `10` as the slot's
 `SPRITE_COLOR`, and `11` as `SPRITE_COLOR3`. `SPRITE_BG` sets the bitmap
 backdrop.
+
+`SPRITE_DATA_TILES` accepts any runtime tile width and height. Tiles are
+stored left to right, then top to bottom. Each tile covers 8x8 hires
+pixels or 4x8 multicolor pixels. Saved bitmap and cell color storage is
+allocated from the supplied dimensions.
+
+With page flipping enabled, `SPRITES_FLUSH` waits before showing the
+finished page. Use it once per game update without a separate `FRAME_WAIT`.
+Sprite colors are refreshed when their covered cells or colors change.
 
 `SPRITES_ON` selects the matching bitmap mode. See
 [`multicolor_sprite.cbs`](../../examples/plus4/crustybasic/multicolor_sprite.cbs).
@@ -97,7 +123,24 @@ The runtime tick source is the KERNAL jiffy clock. It runs at about
 60 Hz on PAL and NTSC because the KERNAL calibrates the TED interrupt by
 video standard. The 24-hour wrap is compensated for one crossing.
 
+The CBM clock calls are specific to this target family:
+
+| Call | Purpose |
+| --- | --- |
+| `TI` | Read the 24 bit KERNAL jiffy clock as `U32`. |
+| `TI_SET jiffies` | Set the KERNAL jiffy clock from the low 24 bits. |
+| `TI$` | Return the clock as a six character `HHMMSS` string. |
+
+`TICKS` uses `TI` as its source. `TICKS_RESET` records a new starting
+value without changing the KERNAL clock.
+
 ## Files
+
+`FILE_LOAD_PROGRAM(path$)` loads a PRG from disk device 8 using its
+stored address. `FILE_LOAD_PROGRAM(path$, dst)` uses `dst` instead.
+Both skip the two address bytes and load the remaining file through
+KERNAL LOAD. They return zero on success or the KERNAL error code,
+without running the loaded code.
 
 File channels default to disk device 8 and use the logical channel as
 the secondary address. Plus/4-specific opens can choose another device

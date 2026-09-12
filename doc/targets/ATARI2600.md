@@ -273,7 +273,7 @@ PROC MAIN
 	TILE_BOX 0, 0, TILE_COLUMNS - 1, TILE_ROWS - 1, 1
 
 	WHILE 1
-		TILE_WAIT 1
+		FRAME_WAIT 1
 	ENDWHILE
 ENDPROC
 ```
@@ -370,7 +370,9 @@ tools/bin/cb-image --target atari2600 --name A2600 --mirror pf.png -o pf.cbi
 ```
 
 Images use row playfield mode. Rows and columns beyond the configured
-grid are clipped. Image data is linked into the cartridge.
+grid are clipped. Converted images use RLE8 when it makes them smaller
+and otherwise keep the original row payload. Image data is linked into
+the cartridge.
 
 The target has no general console text output, so `PRINT` is not a
 screen renderer and `TEXT_OUTPUT_SUPPORTED` remains false. It does have
@@ -405,9 +407,9 @@ Information row text is separate from these renderers. Select it with
 ## Frames and Timing
 
 With a built-in display kernel, `FRAME_WAIT` draws one frame and
-increments the portable `FRAME_COUNTER`. `FRAME_WAIT COUNT`,
-`FRAME_DELAY COUNT`, and `TILE_WAIT COUNT` draw frames while waiting, so
-the television signal stays active.
+increments the portable `FRAME_COUNTER`. `FRAME_WAIT COUNT` and
+`FRAME_DELAY COUNT` draw frames while waiting, so the television signal
+stays active.
 
 ```basic
 WHILE 1
@@ -416,10 +418,9 @@ WHILE 1
 ENDWHILE
 ```
 
-`DRAWSCREEN` remains the direct target call. `FRAME_COUNT` returns the
-target's 8-bit frame count and wraps every 256 drawn frames.
-`TICKS_HZ` is 60; `TICKS` advances only when frames are drawn and also
-wraps every 256 frames.
+`FRAME_COUNTER` is the shared 16-bit frame count and wraps every 65536
+drawn frames. `TICKS_HZ` is 60; `TICKS` uses the same counter and wraps
+after 65536 frames since `TICKS_RESET`.
 
 There is no frame callback or VBI hook. `FRAME_INSTALL_SUPPORTED` is
 false. The built-in display kernels currently use NTSC timing: 3 VSYNC,
@@ -613,13 +614,12 @@ uses the paired TIA pitch and control table. `PLAY_NOTE_SHAPE` uses the
 requested control with the closest available pitch. Exact effects use
 `TIA.SOUND`.
 
-`PLAY_NOTE_FOR` and `PLAY_NOTE_SHAPE_FOR` block, convert their duration
-to drawn frames using `DURATION \ 100`, and then stop the voice.
+`PLAY_NOTE_FOR` and `PLAY_NOTE_SHAPE_FOR` block for their duration in
+ticks, one per drawn frame, and then stop the voice.
 
 `BEEP DURATION` uses voice `0`, divider `12`, control `4`, and volume
 `8`. It calls `FRAME_DELAY DURATION`, keeping a built in display active,
-and then stops voice `0`. Its duration is therefore measured directly
-in drawn frames, unlike `PLAY_NOTE_FOR`.
+and then stops voice `0`. Its duration is also measured in drawn frames.
 
 Timed sound scheduling is unavailable: `SOUND_TIMED_SUPPORTED` and
 `SOUND_TIMED_FREE_RUNNING` are `FALSE`, and `SOUND_TIMED_VOICES` is `0`. Timed

@@ -1,122 +1,164 @@
 # crustyBASIC on Commodore VIC-20
 
-Use `@OPTION TARGET vic20` for the unexpanded VIC-20 profile, or
-pick an exact memory expansion with `@OPTION SYSTEM`.
+Use `@OPTION TARGET vic20` for the default unexpanded VIC-20 profile, or
+select an exact RAM configuration with `@OPTION SYSTEM`, e.g. `vic20.3k`.
 
-Portable runtime calls are documented in [`../API.md`](../API.md).
-This page covers VIC-20 systems, modes, formats, and hardware notes. For
-the `cbm_basic_vic20` dialect, see
-[`../USAGE.md#dialects`](../USAGE.md#dialects).
+Portable runtime calls are documented in [`../API.md`](../API.md). This page
+covers VIC-20 systems, memory layouts, display modes, formats, and hardware
+notes. For command-line target selection and dialects, see
+[`../USAGE.md`](../USAGE.md).
 
 ## Systems
 
-| System | Output | Notes |
+| System | Default output | Notes |
 | --- | --- | --- |
-| `vic20.orig` | `.prg` | Default unexpanded VIC-20. |
-| `vic20.3k` | `.prg` | 3K expansion. BASIC starts at `$0401`. |
-| `vic20.8k` | `.prg` | 8K expansion in BLK1. BASIC starts at `$1201`. |
-| `vic20.16k` | `.prg` | 16K expansion. |
-| `vic20.24k` | `.prg` | 24K expansion. |
+| `vic20.orig` | `.prg` | Unexpanded VIC-20, vic20 TARGET defaults to this |
+| `vic20.3k` | `.prg` | 3K RAM expansion |
+| `vic20.8k` | `.prg` | 8K RAM expansion in BLK1 |
+| `vic20.16k` | `.prg` | 16K RAM expansion |
+| `vic20.24k` | `.prg` | 24K RAM expansion |
 
-All systems use the resident KERNAL and BASIC V2 ROMs. `REAL` is
-available through the BASIC ROM. Strings encode to PETSCII.
+All profiles use the VIC-20 KERNAL and BASIC V2 ROMs. `REAL` uses the BASIC
+ROM, and text output supports Commodore control codes.
 
-## Memory And Screen
+The unexpanded profile has limited RAM. It is suitable for small
+text programs; custom images and software sprites generally require a RAM
+expansion.
 
-| Item | `vic20.orig` / `vic20.3k` | `vic20.8k` / `vic20.16k` / `vic20.24k` |
-| --- | --- | --- |
-| Code start | `$1010` / `$0410` | `$1210` |
-| Program RAM top | `$1E00` | `$4000` / `$6000` / `$8000` |
-| Text screen | `$1E00` | `$1000` |
-| Color RAM | `$9600` | `$9400` |
-| Text | 22x23 | 22x23 |
+## Memory
 
-Use `@OPTION START_PROGRAM <addr>` to move the BASIC loader stub.
-If `START_CODE` is not set, the machine code starts 15 bytes after
-`START_PROGRAM`, matching the target default. Use `@OPTION START_CODE
-<addr>` when a custom layout needs a different machine code entry.
+These addresses are relevant when converting an existing BASIC listing,
+installing a custom character set, or loading a native image format.
 
-`@OPTION STARTUP <name>` selects one of the BASIC loader stubs
-directly - `vic20_basic` ($1001), `vic20_basic_3k` ($0401), or
-`vic20_basic_8k` ($1201) - and moves the program/code start to match,
-without switching systems. For a fully custom loader, write an
-`ASM STARTUP` block (see LANGUAGE.md).
+| Item | `vic20.orig` | `vic20.3k` | `vic20.8k` | `vic20.16k` | `vic20.24k` |
+| --- | --- | --- | --- | --- | --- |
+| Code starts at | `$1010` | `$0410` | `$1210` | `$1210` | `$1210` |
+| Program RAM ends at | `$1DFF` | `$1DFF` | `$3FFF` | `$5FFF` | `$7FFF` |
+| `SCREEN_BASE` | `$1E00` | `$1E00` | `$1000` | `$1000` | `$1000` |
+| `COLOR_BASE` | `$9600` | `$9600` | `$9400` | `$9400` | `$9400` |
 
-`SCREEN_BASE` and `COLOR_BASE` follow the active system, so
-programs can use them instead of hard-coded screen addresses.
+`SCREEN_BASE` and `COLOR_BASE` follow the selected system. Programs should
+use these constants instead of fixed addresses.
 
-## VIC-I
+If imported data requires a fixed memory range, relocate the program with
+`@OPTION START_CODE` and `@OPTION START_DATA`. `@OPTION START_PROGRAM` is
+only required when the BASIC launcher overlaps that range.
 
-The `VIC` namespace exposes the VIC-I video, sound, paddle, and light
-pen registers at `$9000-$900F`.
-
-| Name | Purpose |
-| --- | --- |
-| `VIC.SCREEN_X`, `VIC.SCREEN_Y` | Screen origin. |
-| `VIC.COLUMNS`, `VIC.ROWS` | Text layout and cell height bits. |
-| `VIC.RASTER` | Current raster line. |
-| `VIC.CHAR_BASE` | Screen and character memory selection. |
-| `VIC.POT_X`, `VIC.POT_Y` | Paddle values. |
-| `VIC.SOUND1`, `VIC.SOUND2`, `VIC.SOUND3` | Bass, alto, soprano voices. |
-| `VIC.NOISE` | Noise voice. |
-| `VIC.VOLUME` | Master volume and auxiliary color. |
-| `VIC.COLOR` | Background, inverse, and border color. |
-
-```basic
-VIC.COLOR = $1B
-VIC.VOLUME = 15
-VIC.SOUND3 = $E0
-```
+Use `CHARSET_COPY_DEFAULT`, `CHARSET_INSTALL`, and `CHARSET_DEFINE` for custom
+characters. These helpers reserve `$1800` to `$1BFF` at compile time. Code,
+data, and the heap stay outside that area; expansion RAM above it remains
+available.
 
 ## Colors
 
-The VIC-I palette has 16 colors, but normal text cell foreground color
-only has eight choices. Cell, tile, and sprite foreground writes mask
-through `CELL_FOREGROUND_COLOR_MASK` and keep values in `0..7`.
+Cells show eight colors: `BLACK`, `WHITE`, `RED`, `CYAN`, `PURPLE`,
+`GREEN`, `BLUE` and `YELLOW`, and `STD_COLORS` holds exactly those.
+`ORANGE` and the `LIGHT_` colors are background colors: `BACKGROUND_COLOR`
+takes them, a `LIGHT_` color used for a cell drops to its base color, and
+`ORANGE` or `LIGHT_ORANGE` used for a cell is a compile error. There is no
+gray or brown, so those names do not exist on this target.
 
-Some portable color names have no normal VIC-20 foreground equivalent.
-The target manifest maps those names to visible VIC-20 foreground
-fallbacks. For example, `LIGHT_GRAY` maps to `CYAN`, while `YELLOW`
-stays yellow. This keeps portable programs readable without adding
-target branches.
+## Display modes
 
-The VIC-20 target also exposes the VIC-I palette names:
+The VIC-I displays a 22 by 23 character grid. Each cell is 8 by 8 pixels,
+giving a visible character area of 176 by 184 pixels.
 
-| Value | Constant |
-| --- | --- |
-| `0` | `BLACK` |
-| `1` | `WHITE` |
-| `2` | `RED` |
-| `3` | `CYAN` |
-| `4` | `PURPLE` |
-| `5` | `GREEN` |
-| `6` | `BLUE` |
-| `7` | `YELLOW` |
-| `8` | `ORANGE` |
-| `9` | `LIGHT_ORANGE` |
-| `10` | `LIGHT_RED` |
-| `11` | `LIGHT_CYAN` |
-| `12` | `LIGHT_PURPLE` |
-| `13` | `LIGHT_GREEN` |
-| `14` | `LIGHT_BLUE` |
-| `15` | `LIGHT_YELLOW` |
+Portable display modes map as follows:
 
-A VIC-20 specific program can still use the full 16 color palette where
-the hardware allows it:
-
-| Use | Range | How |
+| Portable mode | VIC-20 mode | Result |
 | --- | --- | --- |
-| Cell foreground | `0..7` | Cell color write or `POKEB COLOR_BASE + Y * TEXT_WIDTH + X, C` |
-| Cell multicolor flag | bit 3 | Write `8..15` to color RAM for that cell |
+| `CELL` | `VIC_TEXT` | Normal 22x23 character screen |
+| `CELL_MULTICOLOR` | `VIC_CELL_MULTICOLOR` | 22x23 multicolor character screen |
+| `BITMAP_HIRES` | Not available | `DISPLAY` returns `0` |
+| `BITMAP_LORES` | Not available | `DISPLAY` returns `0` |
+| `BITMAP_MULTICOLOR` | Not available | `DISPLAY` returns `0` |
+
+`CELL` is the default. Calling `DISPLAY` without an argument also selects it.
+Portable programs should use `CELL` or `CELL_MULTICOLOR`.
+
+The native VIC-20 mode names are:
+
+| VIC-20 mode | Value | Size | Colors | Notes |
+| --- | --- | --- | --- | --- |
+| `VIC_TEXT` | `$80` | 22x23 cells | One of 8 foreground colors per cell, plus one shared background | Normal VIC-I character mode, equivalent to portable `CELL` |
+| `VIC_CELL_MULTICOLOR` | `$81` | 22x23 cells | Four colors in each multicolor character | VIC-I multicolor character mode, equivalent to portable `CELL_MULTICOLOR` |
+
+`CELL` and `VIC_TEXT` select the same hardware mode. `CELL_MULTICOLOR` and
+`VIC_CELL_MULTICOLOR` also select the same hardware mode. `DISPLAY_MODE`
+retains the mode name passed to `DISPLAY`, allowing portable and VIC-20 mode
+names to be distinguished.
+
+All modes report `DISPLAY_WIDTH = 22` and `DISPLAY_HEIGHT = 23`. In either
+multicolor mode, each character row contains four pixels. Each pixel is
+encoded with 2 bits and displayed at double width. The four colors are the
+shared background, shared border, shared auxiliary color, and the cell
+foreground.
+
+`DISPLAY mode` returns `1` for all four supported names.
+`DISPLAY_HAS_MODE(mode)` reports support without changing the current mode.
+`DISPLAY_MODE_COLOR_COUNT` returns `4` for `CELL_MULTICOLOR` and
+`VIC_CELL_MULTICOLOR`, and `0` for the two normal character names.
+
+Changing modes does not clear the screen. Call `CLS` to clear it. Switching
+to a multicolor mode marks the screen cells as multicolor. Switching to
+either normal character name returns them to normal character color.
+
+The VIC-20 has no bitmap display mode. `PLOT`, `POINT`, and mixed text and
+bitmap displays are not available. Graphics use cells, tiles, custom
+characters, or software sprites.
+
+## Colors
+
+The VIC-I has 16 colors. Background and auxiliary colors can use all
+16. Border and character foreground colors are limited to values 0 through
+7.
+
+| Value | VIC-20 color | crustyBASIC constant |
+| --- | --- | --- |
+| `0` | Black | `BLACK` |
+| `1` | White | `WHITE` |
+| `2` | Red | `RED` |
+| `3` | Cyan | `CYAN` |
+| `4` | Purple | `PURPLE` |
+| `5` | Green | `GREEN` |
+| `6` | Blue | `BLUE` |
+| `7` | Yellow | `YELLOW` |
+| `8` | Orange | `ORANGE` |
+| `9` | Light orange | `LIGHT_ORANGE` |
+| `10` | Pink | `LIGHT_RED` |
+| `11` | Light cyan | `LIGHT_CYAN` |
+| `12` | Light purple | `LIGHT_PURPLE` |
+| `13` | Light green | `LIGHT_GREEN` |
+| `14` | Light blue | `LIGHT_BLUE` |
+| `15` | Light yellow | `LIGHT_YELLOW` |
+
+crustyBASIC uses portable color constants, so their names do not always
+match the VIC-20 names. `LIGHT_RED` selects pink, and `LIGHT_GRAY` maps to
+cyan.
+
+In multicolor mode, every cell has its own foreground color. The background,
+border, and auxiliary colors are shared by the whole screen.
+
+```basic
+DISPLAY VIC_CELL_MULTICOLOR
+CELL_COLOR 10, 5, YELLOW
+CELL_COLORS WHITE, BLACK, RED, CYAN
+```
+
+`CELL_COLOR` changes the foreground of the cell at column 10, row 5 to
+yellow.
+`CELL_COLORS` then sets every cell's foreground to white, the shared background to
+black, the shared border to red, and the shared auxiliary color to cyan.
+
+Direct VIC-I color control uses the following ranges:
+
+| Use | Range | Where it lives |
+| --- | --- | --- |
+| Cell foreground | `0..7` | Color RAM |
+| Cell multicolor selection | Bit 3 | Color RAM |
 | Background | `0..15` | High nibble of `VIC.COLOR` |
 | Border | `0..7` | Low bits of `VIC.COLOR` |
-| Auxiliary multicolor | `0..15` | High nibble of `VIC.VOLUME` |
-
-In multicolor cells, the character glyph is read as two bit pixels. The
-four pixel values select the global background color, global border
-color, global auxiliary color, or that cell's `0..7` foreground color.
-This is why the upper eight colors are useful for backgrounds and the
-auxiliary multicolor, but not as per cell foreground colors.
+| Auxiliary color | `0..15` | High nibble of `VIC.VOLUME` |
 
 ```basic
 @OPTION TARGET vic20
@@ -128,188 +170,177 @@ AUX    = LIGHT_RED
 VIC.COLOR  = (BG * 16) + BORDER
 VIC.VOLUME = (AUX * 16) + (VIC.VOLUME & 15)
 
-' set one cell to multicolor mode with red as its per cell foreground
+' set one cell to multicolor with a red foreground
 POKEB COLOR_BASE + 5 * TEXT_WIDTH + 10, 8 + RED
 ```
 
-## Text And Cells
+## Text, cells, and custom characters
 
-The VIC-20 target focuses on the 22x23 character grid. Text and cell
-runtime support works on every memory expansion. The default graphics
-mode is `CELL`.
+Text, cells, and tiles use the same 22 by 23 character screen.
 
-| Mode | VIC-20 mode | Size | Notes |
-| --- | --- | --- | --- |
-| `CELL` | text cell screen | 22x23 | default |
-| `BITMAP_HIRES` | not supported | | |
-| `BITMAP_LORES` | not supported | | |
-| `BITMAP_MULTICOLOR` | not supported | | |
-| `CELL_MULTICOLOR` | not supported | | |
+Regular crustyBASIC source keeps the direct byte values for letters:
+`A-Z` uses `$41-$5A`, `a-z` uses `$61-$7A`, and a newline uses `$0D`. The
+glyph on screen still depends on whether the VIC-20 is showing its upper or
+lower character set.
 
-Use `VIC_TEXT` for the target native VIC-I text mode.
+The `cbm_basic_vic20` dialect follows VICE petcat listing conversion instead.
+In that dialect, `A-Z` uses `$C1-$DA`, `a-z` uses `$41-$5A`, and `~` uses
+`$FF`.
 
-Use text, cells, tiles, and sprites for the 22x23 character grid. The
-VIC-20 target does not provide bitmap display modes today.
+Use `{$NN}` for an exact byte value. The following named escapes cover common
+screen controls:
 
-crustyBASIC strings use direct ASCII letter values. `A-Z` maps to
-`$41-$5A`, `a-z` maps to `$61-$7A`, and a newline maps to `$0D`.
-The displayed glyph still depends on the active Commodore character set.
-The CBM BASIC dialect uses VICE petcat listing conversion instead:
-`A-Z` maps to `$C1-$DA`, `a-z` maps to `$41-$5A`, and `~` maps to
-`$FF`. Use `{$NN}` for an exact PETSCII byte. Common escapes:
-
-| Escape | Byte |
+| Escape | Result |
 | --- | --- |
-| `{RETURN}`, `{ENTER}` | `$0D` |
+| `{RETURN}`, `{ENTER}` | Return, `$0D` |
 | `{TAB}` | Four spaces |
-| `{CLEAR}`, `{CLR}` | `$93` |
-| `{HOME}` | `$13` |
-| `{LOWER}`, `{TEXT_LOWER}` | `$0E` |
-| `{UPPER}`, `{TEXT_UPPER}`, `{GRAPHICS}` | `$8E` |
-| `{LEFT}`, `{RIGHT}`, `{UP}`, `{DOWN}` | Cursor controls |
-| `{RVS_ON}`, `{RVS_OFF}` | Reverse video controls |
+| `{CLEAR}`, `{CLR}` | Clear screen |
+| `{HOME}` | Move to the home position |
+| `{LOWER}`, `{TEXT_LOWER}` | Select the lower character set |
+| `{UPPER}`, `{TEXT_UPPER}`, `{GRAPHICS}` | Select the upper and graphics character set |
+| `{LEFT}`, `{RIGHT}`, `{UP}`, `{DOWN}` | Move the cursor |
+| `{RVS_ON}`, `{RVS_OFF}` | Turn reverse video on or off |
 
-The VIC-20 target supports custom 8-byte character glyphs. See
-[`../API.md`](../API.md) for charset calls and constants.
-Cell backed `TILE_DEFINE` copies the default font once, selects the tile
-charset page, then writes defined glyphs into it.
+## VIC-I registers
+
+The `VIC` namespace provides direct access to VIC-I registers. Use the
+portable APIs for common operations and `VIC.*` names for direct hardware
+control.
+
+| Name | What it controls |
+| --- | --- |
+| `VIC.SCREEN_X`, `VIC.SCREEN_Y` | Screen position |
+| `VIC.COLUMNS`, `VIC.ROWS` | Screen size and character height bits |
+| `VIC.RASTER` | Current raster line |
+| `VIC.CHAR_BASE` | Screen and character memory selection |
+| `VIC.LIGHT_PEN_X`, `VIC.LIGHT_PEN_Y` | Light pen position |
+| `VIC.POT_X`, `VIC.POT_Y` | Paddle values |
+| `VIC.SOUND1`, `VIC.SOUND2`, `VIC.SOUND3` | Bass, alto, and soprano voices |
+| `VIC.NOISE` | Noise voice |
+| `VIC.VOLUME` | Master volume and auxiliary color |
+| `VIC.COLOR` | Background, reverse mode, and border color |
+
+```basic
+VIC.COLOR  = $1B
+VIC.VOLUME = 15
+VIC.SOUND3 = $E0
+```
 
 ## Images
 
-| Format | Accepted files | Size |
-| --- | --- | --- |
-| `IMAGE_FMT_VIC_I_CELLS` | Indexed PNG and PCX converted to custom cells | 176x184 |
-| `IMAGE_FMT_VIC_I_FCBPAINT` | Native FCBPaint files | 168x192 |
-| `IMAGE_FMT_VIC_I_MINIPAINT` | Native MINIPAINT files | 160x192 |
+The VIC-20 image API supports three source formats:
 
-FCBPaint pictures use per-line color changes, so `cb-image` compiles those
-changes into the timed raster code used by the viewer. The result keeps the
-mixed hires and multicolor cells and all inline color splits. FCBPaint is PAL
-only.
+| Input | Format | Display size | Notes |
+| --- | --- | --- | --- |
+| Indexed PNG or PCX | `IMAGE_FMT_VIC_I_CELLS` | 176x184 | Converted to VIC-I custom characters |
+| FCBPaint | `IMAGE_FMT_VIC_I_FCBPAINT` | 168x192 | Native VIC-20 format, PAL only |
+| MINIPAINT | `IMAGE_FMT_VIC_I_MINIPAINT` | 160x192 | Native VIC-20 format |
 
-Convert an `.fcb` file to a streaming image before building the program:
+`@INCLUDE_IMAGE` prepares any of these formats during the build. Images can be
+embedded in the program or stored in a prepared `.img` file for
+`IMAGE_LOAD`. See the [image API](../API.md#image) for the shared include and
+loading forms.
 
-```text
-cb-image --target vic20 --img source.fcb -o TITLE.IMG
-```
+Image display requires expanded RAM or a cartridge build. It is not available
+to an unexpanded `vic20.orig` PRG.
 
-Load it from a 24K expansion with the program above the display memory:
+All three formats support wipes, slides, four step fades, and dissolves.
+Both uncompressed and RLE8 images work. Dissolve block sizes are 1, 2, 4,
+and 8 native pixels.
 
-```basic
-@OPTION SYSTEM vic20.24k
-@OPTION START_CODE $5000
-@OPTION START_DATA $7000
-@INCLUDE "api/image.cbi"
+Cell images move in 8x8 character steps. Repeated copies of a character
+dissolve together. MINIPAINT moves in 4x16 native pixel cells. FCBPaint
+moves in 4x8 native pixel cells; its raster colours stay fixed during slides.
+MINIPAINT and FCBPaint count each multicolour pixel pair as one native pixel.
 
-PROC MAIN
-	OK AS U8
+FCBPaint keeps control until Space after loading or an incoming effect.
+Outgoing effects blank the display and return when finished. Fades briefly blank it
+between levels while updating the raster colours.
 
-	OK = IMAGE_LOAD_DISPLAY("TITLE.IMG")
-ENDPROC
-```
+Cell effects keep a 1012 byte screen buffer; incoming dissolves also keep
+1024 bytes of character data. MINIPAINT and FCBPaint share a 4096 byte
+effect buffer. Allow room for the source image and the displayed image too.
+For cell images on expansions of 8K or more, use `@OPTION START_CODE $2000`
+to leave room for the character set. Native paint formats need their own
+memory layout; see `examples/vic20/crustybasic/image_types.cbs`.
 
-The FCBPaint viewer uses `$0000-$4FFF` and `$9400-$97FF`. Press Space to stop
-the viewer and return to the program. It restores low memory and the VIC and
-VIA settings, but leaves the picture data in display memory. Use a converted
-`.img` file; direct loading of the original `.fcb` file is not supported.
-Streaming is recommended because prepared FCBPaint images include their
-raster code and are usually too large to embed alongside the program.
+## Software sprites
 
-MINIPAINT files can be converted and embedded with `@INCLUDE_IMAGE`, or
-loaded directly with `IMAGE_LOAD_DISPLAY`. Direct loading recognizes the
-complete native file header and ignores its bundled viewer.
+The VIC-20 has no hardware sprites. Portable sprite calls draw movable shapes
+with custom characters and require an 8K or larger expansion.
 
-MINIPAINT uses `$1000-$1FFF` for its screen and bitmap and `$9400-$94EF`
-for color RAM. Programs using it must place code and mutable data outside
-`$1000-$1FFF`. For example, an 8K expansion can use:
-
-```basic
-@OPTION SYSTEM vic20.8k
-@OPTION START_CODE $2200
-@OPTION START_DATA $3800
-```
-
-The program, runtime, and data must still fit the selected expansion.
-KERNAL-backed loading is available for converted `.img` files and native
-MINIPAINT files.
-
-## Files
-
-File channels default to disk device 8 and use the logical channel as
-the secondary address. VIC-20-specific opens can choose another device
-or secondary address.
-
-The lower KERNAL channel helpers are also callable by target-specific
-programs: `OPEN_CH`, `CLOSE_CH`, `GET_CH`, `PUT_CH`, `PRINT_CH_STR`,
-`ST`, and `CMD_CH`.
-
-## Sprites
-
-The VIC-20 has no hardware sprites. Sprites use a four-slot
-character-cell layer.
-
-| Feature | Value |
+| VIC-20 limit | Value |
 | --- | --- |
-| Sprite count | 4 |
-| Size | 8x8 cell |
-| Movement | Snaps to 8x8 cells |
-| Data | One screen character, or one custom 8x8 glyph |
-| Collision | Not hardware backed |
-
-An 8-byte custom glyph can be installed for one sprite slot. Call
-`SPRITE_CHARSET_INSTALL ADDR` first only if you need to choose a
-specific 1K-aligned character RAM page. It copies the default font,
-selects that page, then sprite data replaces only its own glyph slots.
+| Horizontal position | Every pixel |
+| Vertical position | Every pixel |
+| Colors | One foreground color for each sprite |
+| Collision | Sprite to sprite and sprite to background checks |
+| Updates | Applied by `SPRITES_FLUSH` |
+| Sprite slots | Four by default, selected by `SOFT_SPRITE_COUNT` |
 
 ## Input
 
-| Capability | Value |
+| Feature | VIC-20 support |
 | --- | --- |
 | Keyboard | Yes |
-| Individual held keys | Yes |
+| Individual held keys | Yes, through `KEY_HELD` |
 | Joystick ports | 1 |
-| Buttons | 1 per port |
-| Stick type | Digital |
-| Paddle axes | 2 |
-| Keypad ports | 0 |
-| Keypad `INPUT` | No |
-| Mouse buttons | 0 |
+| Buttons | 1 |
+| Paddles | 2 axes |
+| Keypad | No |
+| Mouse | No |
 
-The single joystick port maps to port 0. Other ports read as neutral.
-Paddle axes 0 and 1 read `VIC.POT_X` and `VIC.POT_Y`; trigger reads
-always return released because there is no separate paddle trigger line.
+The joystick is port 0. Other port numbers read as neutral. Paddle axes 0
+and 1 read `VIC.POT_X` and `VIC.POT_Y`. There is no separate paddle trigger,
+so trigger reads return released.
 
-`KEY_HELD` polls the keyboard matrix without consuming typed input.
+`KEY_HELD` checks the keyboard without consuming typed input.
 
 ## Timing
 
-The runtime tick source is the KERNAL jiffy clock. It runs at about
-60 Hz on PAL and NTSC because the KERNAL calibrates the VIA timer by
-video standard. The 24-hour wrap is compensated for one crossing.
+`FRAME_WAIT` follows the video refresh: 60 Hz on NTSC, 50 Hz on PAL. It
+returns at the start of the bottom border, and `SPRITES_FLUSH` draws at
+that same point, so a loop that calls both spends one frame per pass.
+`TICKS` uses the KERNAL clock. The KERNAL programs the same timer value on
+NTSC and PAL, so that clock runs at about 55 Hz on NTSC and 60 Hz on PAL.
+`TICKS_HZ` reports 55 or 60 to match the current `REGION`.
 
 ## Sound
 
-Sound maps voices to VIC-I registers:
+The four sound voices map directly to VIC-I:
 
-| Voice | Register |
-| --- | --- |
-| `0` | `VIC.SOUND3`, soprano |
-| `1` | `VIC.SOUND2`, alto |
-| `2` | `VIC.SOUND1`, bass |
-| `3` | `VIC.NOISE` |
+| Voice | VIC-I register | Sound |
+| --- | --- | --- |
+| `0` | `VIC.SOUND3` | Soprano |
+| `1` | `VIC.SOUND2` | Alto |
+| `2` | `VIC.SOUND1` | Bass |
+| `3` | `VIC.NOISE` | Noise |
 
-The pitch value is the 7-bit VIC-I value. Waveform selection is ignored
-because the voices have fixed shapes. The bell uses the soprano voice.
+## Files
+
+`FILE_LOAD_PROGRAM(path$)` loads a PRG from disk device 8 using its
+stored address. `FILE_LOAD_PROGRAM(path$, dst)` uses `dst` instead.
+Both skip the two address bytes and load the remaining file through
+KERNAL LOAD. They return zero on success or the KERNAL error code,
+without running the loaded code.
+
+File calls default to disk device 8. `OPEN_CH`, `CLOSE_CH`, `GET_CH`,
+`PUT_CH`, `PRINT_CH_STR`, `ST`, and `CMD_CH` provide direct KERNAL channel
+access and support other device numbers.
 
 ## Dialect
 
-`cbm_basic_vic20` uses Commodore BASIC V2 suffix rules: bare numeric
-names, `!`, and `#` are `REAL`, `%` is 16-bit integer, and `$` is
-`STRING`.
+`cbm_basic_vic20` follows Commodore BASIC V2 type suffixes. A bare numeric
+name, `!`, or `#` is `REAL`; `%` is a 16 bit integer; and `$` is a string.
 
-Use `RAND(N)` for portable bounded integers. Compatibility `RND`
-follows the dialect rules.
+Commodore BASIC listings often use POKEs to locations 51/52 and 55/56 to
+reserve memory. The dialect recognizes fixed values and reserves the matching
+top of RAM. Calculated or incomplete values produce a warning requesting an
+explicit `@OPTION RAM_TOP $xxxx`.
+
+Use `RAND(N)` for a portable bounded integer. Compatibility `RND` follows the
+dialect's Commodore behavior.
 
 ## Examples
 
-See [`../../examples/vic20/`](../../examples/vic20/).
+VIC-20 examples live in [`../../examples/vic20/`](../../examples/vic20/).

@@ -68,6 +68,69 @@ REM comment
 Both forms continue to the end of the line. They can start a line or
 follow a statement.
 
+crustyBASIC ships with three block comment pairs:
+
+| Start | End   |
+| ----- | ----- |
+| `/*`  | `*/`  |
+| `/'`  | `'/`  |
+| `'''` | `'''` |
+
+```basic
+/' this text is ignored,
+   however many lines it runs to '/
+
+X = 3 /' and inline, mid statement '/ + 4
+
+/* this form works too */
+
+'''
+this whole region is ignored
+'''
+```
+
+Block comments with different start and end delimiters nest, including
+across delimiter pairs. A pair that uses the same delimiter for both
+ends, such as `'''`, closes at the next delimiter and does not nest
+inside itself.
+
+```basic
+/* outer
+   /' inner '/
+   ''' another inner block '''
+   still commented out
+*/
+```
+
+Nothing inside a block comment is read, including `@INCLUDE` and `@IF`.
+A block that is never closed is an error.
+
+Two things to know:
+
+- A block opened part way through a statement has to close on the same
+  line. `X = 3 /' note` followed by `'/ + 4` on the next line is two
+  broken lines, not one expression.
+- Closing delimiters are special only while they match an open block.
+  `X = '/'` is still the one character string.
+- An exact `'''` opens or closes a block before the single apostrophe
+  comment rule is considered. A single `'` still starts a line comment.
+
+To replace the shipped pairs, set matching lists in
+`crustybasic.config.toml`:
+
+```toml
+block-comment-start = ["{*", "'''"]
+block-comment-end = ["*}", "'''"]
+```
+
+Each start is paired with the end in the same list position. Both lists
+must be present, nonempty, and the same length. Delimiters must contain
+at least two ASCII punctuation characters and cannot overlap each other,
+except when one pair uses the same start and end. List every pair you want
+to use because configured lists replace all three shipped pairs.
+
+Block comments are crustyBASIC syntax only.
+
 ### Multiple statements
 
 Use `:` to chain statements on one line.
@@ -92,6 +155,7 @@ lines. New code does not need line numbers. To require them, use
 
 | Type     | Size            | Range                     |
 | -------- | --------------- | ------------------------- |
+| `U1`     | 1 bit, packed   | `0..1`                    |
 | `U8`     | 1 byte          | `0..255`                  |
 | `U16`    | 2 bytes         | `0..65535`                |
 | `U32`    | 4 bytes         | `0..4294967295`           |
@@ -119,6 +183,7 @@ crustyBASIC type suffixes:
 | `NAME%8`  | `I64`                                              |
 | `NAME!`   | `REAL`                                             |
 | `NAME$`   | `STRING`                                           |
+| `NAME?`   | `DYNAMIC STRING`                                   |
 
 Some targets do not support `U64` or `I64`. See the selected target's
 page under [`targets/`](targets/).
@@ -126,8 +191,35 @@ page under [`targets/`](targets/).
 An explicit `AS` sets the type. You can also use a matching suffix, as
 in `DIM TOTAL#4 AS U32`. The suffix and `AS` type must agree.
 
+`BOOL` is accepted as an alias for `U1`. `U1` is the normal spelling
+used by crustyBASIC and there is no separate boolean type.
+
+`?` is the one suffix that needs no `AS`, because a `DYNAMIC STRING`
+sizes itself. `TEXT?` on its own line is a complete declaration.
+
 `AS ADDR` declares a memory address with the size used by the target.
 You cannot assign it to a smaller integer type.
+
+`MAX_DEFAULT_UINT` and `MAX_DEFAULT_INT` give the largest unsigned and
+signed values for the target's default integer width. They follow that
+width, not the CPU or address width. Dialect and type policy overrides
+do not change these target constants.
+
+| Default integer width | `MAX_DEFAULT_UINT` | `MAX_DEFAULT_INT` |
+| --------------------- | ------------------ | ----------------- |
+| 8 bits                | 255                | 127               |
+| 16 bits               | 65535              | 32767             |
+| 32 bits               | 4294967295         | 2147483647        |
+
+Use them in expressions or compile-time conditions to choose settings:
+
+```basic
+@IF MAX_DEFAULT_UINT = 255 THEN
+    CONST STAR_COUNT = 30
+@ELSE
+    CONST STAR_COUNT = 200
+@ENDIF
+```
 
 To use a different suffix style, define it in
 `crustybasic.config.toml` and select it with `type-policy`:
@@ -216,14 +308,14 @@ is `U8`, and `WORD >> 8`.
 
 ### Typed casts
 
-`U8(expr)`, `U16(expr)`, `U32(expr)`, `I8(expr)`, `I16(expr)`, and
-`I32(expr)` convert a numeric expression to that type. This says that
+`U1(expr)`, `U8(expr)`, `U16(expr)`, `U32(expr)`, `I8(expr)`, `I16(expr)`,
+and `I32(expr)` convert a numeric expression to that type. This says that
 the conversion is intentional, so it does not warn even when the value
 wraps. There are no `U64(expr)` or `I64(expr)` cast forms.
 
 - Values outside the chosen type's range wrap instead of causing a
-  literal range error:
-  `U8(300)` is `44`, `U8(-1)` is `255`, `I8(255)` is `-1`.
+  literal range error: `U1(3)` is `1`, `U8(300)` is `44`, `U8(-1)` is
+  `255`, and `I8(255)` is `-1`.
 - Casts are valid in `CONST` initializers: `CONST LOW = U8($1234)` is
   `$34`.
 - Casting a `STRING` is an error. `REAL` has the same limits as a normal
@@ -293,6 +385,23 @@ number of elements. `ADDR(A(I))` returns the address of one element. For
 a string array, use `ADDR(A(I))` for the element you need rather than
 calculating its address from another element.
 
+`U1` scalars and arrays are packed from bit 0 upward. Up to eight scalar
+declarations with the same owner share one byte, so `A, B, C AS U1`
+takes one byte. A `U1` array takes one byte for every eight elements:
+
+```basic
+A, B, C AS U1             ' 1 byte
+FLAGS(38) AS U1           ' 39 elements, 5 bytes
+```
+
+`U1` parameters, return values, and expression results use a byte while
+they are being passed or evaluated. Reading or writing a packed value
+needs extra shift and mask work, so use `U8` when access speed matters
+more than stored size.
+
+`ADDR` of a `U1` scalar or array element returns the address of its
+containing byte. The bit number is not part of the address.
+
 Use `ALIGN <bytes>` when a global array must start at an address that is
 evenly divisible by a particular number of bytes:
 
@@ -308,7 +417,8 @@ chosen while the program runs. Some assemblers accept only powers of
 two.
 
 An array can take its upper bound from a value calculated while the
-program runs:
+program runs. This makes the array itself dynamic; there is no separate
+`DYNAMIC ARRAY` declaration:
 
 ```basic
 PROC MAIN
@@ -325,11 +435,26 @@ PROC MAIN
 ENDPROC
 ```
 
-These arrays support one numeric dimension. They cannot have an
-initializer or `STRING` elements. The first declaration chooses the
-size and fills the array with zero. Running that declaration again keeps
-the original size and contents. The program ends if there is not enough
-memory for the array.
+These arrays support one numeric dimension and cannot have an
+initializer. Elements can be any type, including `STRING * N`. The
+array lives on the heap, so the target must have one; see
+[`HEAP_SUPPORTED`](API.md#heap).
+
+A dynamic `U1` array also packs eight elements per byte. `LEN` and
+`RESIZE` still count elements, not bytes.
+
+Each time the declaration runs it makes the array exactly that size. An
+unchanged size costs one comparison and nothing else. A changed size
+keeps the elements that still fit. New numeric elements start at zero and
+new string elements start empty. The program ends if there is not enough
+memory.
+
+`RESIZE A(NEW_UPPER)` changes the upper bound without running the
+declaration again. It keeps the elements that still fit, removes entries
+after the new bound, and starts new entries empty when the array grows.
+
+`ERASE <name>` hands a runtime sized array's memory back. `LEN` reads
+`0` afterwards, and running the declaration again allocates it fresh.
 
 An `A(10)` statement calls `PROC A` when that PROC exists. Otherwise it
 declares an array without `DIM`. The same name cannot be both a `PROC`
@@ -356,19 +481,109 @@ S$ = "HELLO"
 LINE$ = S$ + " WORLD"
 S$ += "!"
 
-MID(S$, 1, 5) = "HOWDY"
+MID(S$, 0, 5) = "HOWDY"
 ```
 
 `+=` appends to a string variable without replacing its existing contents.
 
 The capacity can use constant integer arithmetic.
 `SIZEOF(T)` works in numeric expressions for the fixed numeric types
-`U8`, `U16`, `U32`, `U64`, `I8`, `I16`, `I32`, and `I64`. Templates can
-therefore use expressions such as `SIZEOF(@T) * 8`.
+`U1`, `U8`, `U16`, `U32`, `U64`, `I8`, `I16`, `I32`, and `I64`.
+`SIZEOF(U1)` is `1`, the smallest addressable storage unit. Templates
+can therefore use expressions such as `SIZEOF(@T) * 8`.
 
 `STRING_DEFAULT_CAPACITY` changes the usable capacity of declarations
 written as plain `STRING`. For example, a value of 256 allows 256
 characters. An explicit `STRING * N` always has capacity `N`.
+
+A `DYNAMIC STRING` takes its characters from the heap instead of a fixed
+buffer, so it only ever occupies what it is currently holding:
+
+```basic
+NAME$ AS STRING             ' fixed, the target's default capacity
+DESC$ AS STRING * 120       ' fixed 120
+TEXT$ AS DYNAMIC STRING     ' takes only the room it needs
+TEXT?                       ' the same thing, written short
+```
+
+It still holds at most the target's default capacity, the same as a plain
+`STRING`. What changes is cost: a table of a hundred short descriptions
+costs what those descriptions actually take rather than a hundred full
+buffers.
+
+Assigning a shorter value hands any usable tail back to the heap.
+The memory comes back when you assign the empty string:
+
+```basic
+TEXT$ = "YOU ARE IN A MAZE OF TWISTY PASSAGES"
+TEXT$ += ", ALL ALIKE"
+TEXT$ = ""                  ' hands the block back
+```
+
+An array works the same way, one block per element:
+
+```basic
+ROOM$(199) AS DYNAMIC STRING
+ROOM?[199]                  ' the same thing, written short
+
+READ ROOM$(0)
+ROOM$(1) = "A LONG HALL RUNS NORTH."
+ROOM$(1) += " A DOOR STANDS OPEN."
+ROOM$(1) = ""               ' hands that element's block back
+```
+
+A `?` array declares with brackets or with `DIM ROOM?(199)`. Written as
+`ROOM?(199)` on its own line it reads as a call instead. Elements are
+always indexed with parentheses, as in `ROOM?(1)`.
+
+The array itself is a table of pointers, two bytes per element. An element
+you never write reads as the empty string. This is where the saving shows
+up: two hundred descriptions the compiler cannot predict cost what they
+actually hold instead of two hundred full buffers.
+
+The size can come from a value calculated while the program runs.
+`RESIZE` trims or grows the table, and `ERASE` hands back the elements as
+well as the table:
+
+```basic
+ROOM$(COUNT) AS DYNAMIC STRING
+...
+RESIZE ROOM$(NEW_LAST)
+ERASE ROOM$
+```
+
+Shrinking keeps entries through `NEW_LAST` and frees every string after
+it. Assigning `""` frees only that element's contents; the element and
+the array's size remain unchanged. `RESIZE` does not search for empty
+elements.
+
+Putting `MID` on the left of `=` does not work on an element of one of
+these; assign the whole element instead.
+
+You mark declarations. `PROC` parameters and return values written as a
+plain `STRING` follow whatever reaches them, so `DYNAMIC` never has to
+appear in a signature:
+
+```basic
+PROC SHOW(S$ AS STRING)      ' takes a DYNAMIC STRING without a copy
+    PRINT S$
+ENDPROC
+
+PROC JOIN(A$ AS STRING, B$ AS STRING) AS STRING
+    R$ AS DYNAMIC STRING     ' so the return value is dynamic too
+    R$ = A$ + " " + B$
+    RETURN R$
+ENDPROC
+
+PROC CLIP(S$ AS STRING * 8)  ' you asked for a fixed 8, you get it
+    PRINT S$
+ENDPROC
+```
+
+Anything you gave a size to keeps it, including a plain `STRING` you
+declared yourself. Only storage the compiler had to size for you follows.
+
+The target needs a heap; see [`HEAP_SUPPORTED`](API.md#heap).
 
 crustyBASIC rejects an assignment when the value is known to be too
 large. When the size is known only while the program runs,
@@ -448,6 +663,7 @@ PRINT HEX(SHAPE(2))
 
 ```basic
 [@ASYNC]
+[@ASYNC_INSTALL param]
 [@ASYNC_UNINSTALL name[, name]]
 [@WARNING "message"]
 PROC name [([IN|OUT|INOUT] param [AS type][, ...])] [AS type]
@@ -495,8 +711,9 @@ Rules:
   data, its element type must match the parameter's element type.
 - Inside the PROC, a `type ADDR` parameter can be indexed with `[]` or
   `()` to read and write memory at that address. Each index moves by the
-  size of the element type. Indexed `ADDR` parameters currently support
-  `U8`, `I8`, `U16`, and `I16` elements. The parameter is also a normal
+  size of the element type; `U1 ADDR` indexes bits packed from bit 0.
+  Indexed `ADDR` parameters currently support `U1`, `U8`, `I8`, `U16`,
+  and `I16` elements. The parameter is also a normal
   address, so `PEEK`, `POKE`, and other memory calls can use it directly.
 - Assigning to a normal parameter does not affect the caller.
 - `OUT` parameters require an assignable variable argument with the
@@ -505,16 +722,23 @@ Rules:
 - `INOUT` parameters also require an assignable variable argument with
   the same type. The caller's value is copied in before the call and
   copied back when the `PROC` returns.
-- A `PROC` cannot call itself, directly or through another `PROC`. It
-  also cannot start again before an earlier call has returned.
+- A `PROC` can call itself, directly or through another `PROC`, on 6502
+  and 68000 targets. Each nested call saves the PROC's parameters, locals,
+  and working values on the hardware stack, so keep recursion shallow on
+  8 bit machines. Other targets report an error. A `PROC` still cannot be
+  started by a handler while an earlier call is running.
 - A typed `PROC` can be used anywhere its return type is valid.
-- `@ASYNC` marks a `PROC` that may be called by a frame, timer, or other
-  event handler. crustyBASIC reports an error for calls that cannot be
-  used safely by the handler and main program at the same time. Keep
-  handler work short and simple, or move that work outside the handler.
+- Interrupt callbacks take no arguments. Install them using `ADDR(name)`
+  and keep their work short and simple.
+- `@ASYNC_INSTALL param` declares an interrupt callback parameter.
+  Pass a no argument PROC using `ADDR(name)`.
+- `@ASYNC` declares an interrupt handler whose address is passed through
+  a variable or written directly to an interrupt vector.
 - `@ASYNC_UNINSTALL <name>[, <name>]` marks a `PROC` that switches
   handlers off. Each name is the `PROC` that installed one of those
-  handlers.
+  handlers. When a program uses one of the named installers, the compiler
+  calls the marked `PROC` before `END` and when the program runs off its
+  end, so handlers never outlive the program.
 - `@WARNING "message"` shows the message when your source calls that
   overload.
 
@@ -769,11 +993,12 @@ OFFSET%2 = DEC(OFFSET%2)
 #### Logical
 
 Use these operators for conditions in `IF`, `WHILE`, and `UNTIL`, or
-any other expression that needs true or false. They return `0` or `1`.
+any other expression that needs true or false. They return `U1` values,
+either `0` or `1`.
 `AND`, `OR`, and `XOR` always evaluate both sides.
 
 `TRUE` and `FALSE` are reserved constants and can be used anywhere a
-numeric expression is accepted. crustyBASIC uses the `U8` values `1`
+numeric expression is accepted. crustyBASIC uses the `U1` values `1`
 and `0`. A compatibility dialect may use its original BASIC's value for
 `TRUE`, such as `-1`.
 
@@ -791,7 +1016,7 @@ The target has to support `REAL` to use these.
 | Function    | Description                                                                |
 | ----------- | -------------------------------------------------------------------------- |
 | `POW(a, b)` | Exponentiation. Integer values stay integer; `REAL` values use floating point. |
-| `INT(x)`    | Convert `REAL` to integer by dropping its fractional part.                 |
+| `INT(x)`    | Round down to the greatest whole number less than or equal to `x`. Returns `REAL`. |
 | `EXP(x)`    | Natural exponential.                                                       |
 | `LOG(x)`    | Natural log.                                                               |
 | `SGN(x)`    | Sign as a `REAL`.                                                          |
@@ -801,6 +1026,8 @@ The target has to support `REAL` to use these.
 
 `DEG()` and `RAD()` change the angle mode for all trigonometry calls.
 `RAD()` is the default.
+
+`INT(2.5)` is `2`, `INT(-2.5)` is `-3`, and `INT(-2.0)` is `-2`.
 
 #### String functions
 
@@ -813,7 +1040,7 @@ The target has to support `REAL` to use these.
 | `VAL(s$)`                 | `U16`    | Unsigned integer read from text.                  |
 | `LEFT(s, n)`              | `STRING` | Leading characters.                               |
 | `RIGHT(s, n)`             | `STRING` | Trailing characters.                              |
-| `MID(s, pos)`             | `STRING` | Substring from a position numbered from 1.        |
+| `MID(s, pos)`             | `STRING` | Substring from a position, counted from `ARRAY_BASE`. |
 | `MID(s, pos, len)`        | `STRING` | Substring of the requested length.                |
 | `INSTR(haystack, needle)` | `U16`    | Position numbered from 1, or 0 if absent.         |
 | `UPPER(s)`                | `STRING` | ASCII uppercase copy.                             |
@@ -991,7 +1218,7 @@ Without a loop name, `EXIT` and `CONTINUE` use the loop containing them.
 A form such as `EXIT FOR` or `CONTINUE WHILE` uses the nearest containing
 loop of that kind. There must be a matching loop.
 
-### Labels, GOTO, GOSUB
+### Labels, GOTO, GOSUB, POP
 
 ```basic
 TOP:
@@ -1006,8 +1233,27 @@ SETUP:
     RETURN
 ```
 
-Every `GOSUB` path must reach a `RETURN`. Too many `GOSUB` calls before
-a `RETURN`, or a missing `RETURN`, can crash the program.
+`RETURN` resumes after the most recent pending `GOSUB`. `POP` discards
+that return address and continues with the next statement. A later
+`RETURN` resumes after the next outer `GOSUB`.
+
+```basic
+GOSUB WORK
+END
+
+WORK:
+    POP
+    GOTO FINISHED
+
+FINISHED:
+    PRINT "done"
+    END
+```
+
+Use `POP` only with a pending `GOSUB` in the current PROC. It takes no
+arguments and does not exit a loop; use `EXIT` for that. Too many pending
+`GOSUB` calls, or `RETURN` or `POP` without a matching call, can crash the
+program.
 
 When using line numbers, `GOTO <EXPR>` and `GOSUB <EXPR>` also work. The
 result is matched against the program's line numbers while it runs.
@@ -1040,9 +1286,9 @@ ON_ERROR X
 ON_ERROR X + 5
 ```
 
-`ON_ERROR` sets a handler for the next target I/O error. `OFF`
-disables it. The handler is cleared after one error, so call `ON_ERROR`
-again to catch another.
+`ON_ERROR` sets a handler for target I/O errors. `OFF` disables it.
+The handler is paused while it is running so another error does not
+enter it again.
 
 The handler can be a label in the same `PROC`, a line label when using
 line numbers, a `PROC` with no arguments or return type, or a numeric
@@ -1051,6 +1297,15 @@ match, the handler is disabled.
 
 Inside a handler, `ERR()` returns the saved `U8` error code until
 the next error occurs.
+
+```basic
+RESUME
+RESUME_NEXT
+```
+
+`RESUME` retries the statement that raised the error. `RESUME_NEXT`
+continues with the following statement. Both leave the handler and
+reactivate it.
 
 Only target ROM or operating system calls that report an error can
 trigger `ON_ERROR`. See the selected target's page under
@@ -1073,6 +1328,10 @@ PRINT
 `PRINT` writes text. A semicolon puts items next to each other with no
 added space. A comma adds one space. `PRINT` adds a newline unless the
 statement ends with `;` or `,`.
+
+`?` at the start of a statement is short for `PRINT`. Attached to the end
+of a name it is the `DYNAMIC STRING` suffix instead, so `? TEXT?` prints
+a dynamic string.
 
 `PRINT USING` formats numbers and strings into fixed fields:
 
@@ -1372,7 +1631,7 @@ Rules:
 - An `ASM STARTUP` block conflicts with `@OPTION STARTUP`; pick one.
 - When setting `START_PROGRAM`, also set `START_CODE` so the custom
   startup has both addresses.
-- Banked cartridge mappers use their own startups and do not support
+- Banked mappers use their own startups and do not support
   `ASM STARTUP`.
 
 ## Directives
@@ -1405,7 +1664,7 @@ PROC MAIN
 ENDPROC
 ```
 
-- Use `@BANK` only after selecting a banked cartridge mapper.
+- Use `@BANK` only after selecting a banked mapper.
 - Bank numbers start at `0`. The main area, which stays available, is
   not counted as a bank.
 - `PROC MAIN` stays in the main area. Put shared helper PROCs there too.
@@ -1413,9 +1672,10 @@ ENDPROC
 - At the top level of `@BANK N ... @ENDBANK`, use only
   `CONST`, `PROC`, `DATA`, and `DATA` labels. Put `DIM`, inline `ASM`,
   and ordinary statements outside the bank block. `@INCLUDE`,
-  `@INCLUDE_BIN`, and `@INCLUDE_IMAGE` work when their declarations
-  follow the same rule. `CONST` arrays from `@INCLUDE_BIN` and
-  `@INCLUDE_IMAGE` go in bank `N`.
+  `@INCLUDE_FILE`, `@INCLUDE_FONT`, `@INCLUDE_CHARSET`, `@INCLUDE_CHARMAP`,
+  `@INCLUDE_TILESET`, `@INCLUDE_TILEMAP`, `@INCLUDE_SPRITE`, `@INCLUDE_TEXT`,
+  and `@INCLUDE_IMAGE` work when their generated declarations follow the same
+  rule. Their embedded declarations go in bank `N`.
 - Do not nest `@BANK` blocks. Every `@ENDBANK` must match an earlier
   `@BANK`.
 - Each call to a banked PROC starts `READ` at that bank's first `DATA`
@@ -1500,6 +1760,24 @@ some graphics API is present. Check `PLOT_SUPPORTED` for `PLOT` and
 cartridge or ROM images. `TARGET` is the current target name. Use it
 when several systems share the same target.
 
+`START_CODE` and `RAM_TOP` bracket the memory a program has, so a
+module that needs a certain amount of room can say so:
+
+```basic
+@REQUIRES RAM_TOP > $1F00 @ELSE "this needs more RAM than the machine has"
+```
+
+A quoted path requires and includes a file:
+
+```basic
+@REQUIRES "{program_name}/{target}.cbi"
+```
+
+Paths use the same lookup rules as `@INCLUDE`. If the file is missing,
+`build-examples` skips that target; compiling directly reports an unmet
+requirement. Errors in an existing file remain errors. An optional
+`@ELSE "message"` supplies the missing file message.
+
 ### @WARN
 
 ```basic
@@ -1528,6 +1806,17 @@ Fails the compile with your message.
 looks beside the file containing the directive, then under `include/`
 relative to the current working directory.
 
+Add `ELSE` and a second path to make the first one optional:
+
+```basic
+@INCLUDE "graphics/{target}.cbi" ELSE "graphics/shared.cbi"
+```
+
+The fallback loads only when nothing the first path names is on disk, so
+a target gets its own version of a routine just by adding a file, and
+every other target keeps the shared one. If neither exists the error
+names both.
+
 All `@INCLUDE*` directive names and paths ignore letter case, so
 `@include`, `@INCLUDE_Bin`, and `"Common/Utils.cbi"` all work. Two files
 whose names differ only by case are an error, since there is no way to
@@ -1540,12 +1829,19 @@ ignore letter case.
 | Placeholder | Expands to |
 | ----------- | ---------- |
 | `{target}` | Target name. |
+| `{family}` | Hardware family from the target manifest, or the target name when none is set |
 | `{system}` | Full system name. |
 | `{program_name}` | Program filename without extension. |
 | `{media}` | Media variant, such as `cart`, when the selected system has one. |
 | `{cpu}` | CPU name. |
 | `{mapper}` | Selected mapper name when one is active. |
 | `{version}` | crustyBASIC version string; always available. |
+
+Use a family include as a fallback:
+
+```basic
+@INCLUDE "sprite/{target}.cbi" ELSE "sprite/{family}.cbi"
+```
 
 ## Compiler options
 
@@ -1573,9 +1869,9 @@ the accepted forms and values.
 | `DIALECT`                        | dialect name                            | Apply that dialect's defaults to options you haven't set.                     |
 | `ROM`                            | ROM profile name                        | Select a ROM profile for targets that have one.                               |
 | `OUTPUT_TYPE`                    | output name                             | Select a build output such as `cart` or `disk`.                               |
-| `THROTTLE`                       | `0..65535`                              | Slow the program by adding delays. `0` disables it.                           |
+| `THROTTLE`                       | `0..65535`; some targets allow more     | Slow the program by adding delays. `0` disables it.                           |
 | `TILE_BACKEND`                   | `TILE_CELL`, `TILE_HARDWARE`, `TILE_BITMAP`, `TILE_KERNEL` | Choose how `TILE` draws.                                        |
-| `MAPPER`                         | mapper name                             | Pick a cartridge mapper.                                                      |
+| `MAPPER`                         | mapper name or `name(PROVIDER, bank)`   | Choose a mapper using defaults or an explicit provider and physical bank.     |
 | `NUMERIC_MODE`                   | see below                               | Choose the default type for numeric names.                                    |
 | `TYPE_POLICY`                    | policy name                             | Choose the meanings of type suffixes and names without an explicit type.      |
 | `MATH_REAL`                      | `AUTO`, `TARGET`, `BUILTIN`             | Choose where REAL math comes from.                                            |
@@ -1586,6 +1882,7 @@ the accepted forms and values.
 | `START_DATA`                     | address                                 | Set the address where writable program data begins.                           |
 | `STRING_DEFAULT_CAPACITY`        | `1..256`                                | Set the usable capacity for plain `STRING` declarations.                      |
 | `STRING_BOUNDS_CHECKS`           | `TRUE`, `FALSE`                         | Check whole-string assignments and appends while the program runs. Default is `FALSE`. |
+| `HEAP_CHECKS`                    | `TRUE`, `FALSE`                         | Report heap exhaustion and bad releases while the program runs. Default is `FALSE`. |
 | `STARTUP`                        | startup name                            | Select a startup provided by the target. It may also set `START_PROGRAM` and `START_CODE`. |
 | `MEMORY_REGION`                  | target region name                      | Add a named target memory region. Repeating the option adds more regions.     |
 | `MEMORY_ACTION`                  | target action name                      | Enable a setup action provided by the target.                                 |
@@ -1764,6 +2061,56 @@ A rewrite for a call written without parentheses also matches the same
 call with parentheses. The example above matches both `DOUBLE X` and
 `DOUBLE(X)`.
 
+When the replacement needs more than one line, use `@REWRITE_BLOCK`.
+Everything up to `@END_REWRITE` becomes the replacement, so it can hold
+`IF`, `WHILE`, and `DO` blocks, which need a line of their own:
+
+```basic
+@REWRITE_BLOCK SHOW_FRAME
+	SPRITES_FLUSH
+	GFX_SWAP
+@END_REWRITE
+```
+
+An empty replacement removes the statement, which costs nothing:
+
+```basic
+@REWRITE_BLOCK SHOW_FRAME
+@END_REWRITE
+```
+
+A variable the block declares belongs to that use of the block, the
+same way a variable declared inside a `PROC` belongs to that `PROC`:
+
+```basic
+@REWRITE_BLOCK FADE_BORDER {n}
+	I AS U8
+
+	FOR I = 0 TO {n}
+		POKEB $D020, I
+	NEXT
+@END_REWRITE
+```
+
+`I` becomes `FADE_BORDER_I_1` where the block is first used and
+`FADE_BORDER_I_2` where it is used next, so it never clashes with an `I`
+the caller already has, or with the other use. Labels work the same way.
+
+To declare something the caller can use afterwards, take the name as a
+value instead:
+
+```basic
+@REWRITE_BLOCK START_SCORE {name}
+	{name} AS U16
+	{name} = 0
+@END_REWRITE
+
+START_SCORE PLAYER_SCORE
+```
+
+The first matching rule wins, so a file loaded earlier can replace a
+rule that a later file supplies as the default.
+
 To add your own syntax, put `@REWRITE OLD = NEW` lines in a `.cbi` file.
 List that file under `include` in `crustybasic.config.toml`, or load it
 from the source with `@INCLUDE`.
@@ -1773,14 +2120,30 @@ page and work only when that target is selected.
 
 ## Mappers
 
-A cartridge mapper controls how program code and data are arranged in
-ROM. A simple cartridge uses one continuous area. A banked cartridge
-divides a larger ROM into sections and makes each section available as
-needed.
+A mapper controls how program code and data are arranged. Cartridge
+mappers can divide ROM into switched banks. Other mappers can load
+overlays or switch RAM while using a normal disk or other output.
 
-Only cartridge outputs use `@OPTION MAPPER`. Mapper names, defaults,
-bank sizes, and valid bank numbers depend on the target. So do the rules
-for calls and `DATA` that cross banks. Run `crustybasic options` for the
-available names and `crustybasic target-info <system>` for the selected
-system's cartridge details. The matching
+The output type chooses the container. The mapper chooses the layout and
+bank switching method. Select a mapper and use its target defaults with:
+
+```basic
+@OPTION MAPPER name
+```
+
+Some mappers accept an explicit storage provider and physical bank:
+
+```basic
+@OPTION MAPPER name(PROVIDER, 0)
+```
+
+The plain form uses that mapper's default provider. The explicit form is
+accepted only when the selected mapper lists that provider. It does not
+change any `EXTMEM` handle's bank numbering.
+
+Mapper names, defaults, bank sizes, valid bank numbers, providers, and
+supported output types depend on the target. So do the rules for calls and
+`DATA` that cross banks. Run `crustybasic options` for the available names
+and `crustybasic target-info <system>` for the selected system's mapper
+details. The matching
 [target documentation](targets/) explains how to use each mapper.

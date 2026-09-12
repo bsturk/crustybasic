@@ -4,9 +4,8 @@ Use `@OPTION TARGET coco` for the default Extended Color BASIC
 profile, or select an exact machine with `@OPTION SYSTEM`.
 
 Portable runtime calls are documented in [`../API.md`](../API.md).
-This page covers CoCo systems, current library support, known limits,
-and the remaining work found in the July 2026 library audit. For
-command-line target selection and dialects, see
+This page covers CoCo systems, current library support, and known limits.
+For command-line target selection and dialects, see
 [`../USAGE.md`](../USAGE.md).
 
 ## Systems
@@ -17,109 +16,71 @@ command-line target selection and dialects, see
 | `coco.ecb` | `.bin` | Extended Color BASIC |
 | `coco.3` | `.bin` | Super Extended Color BASIC |
 
+For CoCo 2, select `coco.1` if the machine has Color BASIC, or
+`coco.ecb` if it has Extended Color BASIC or Disk Extended Color BASIC.
+
 `coco.ecb` is the default. Program Pak `.ccc` output is selected with
 `OUTPUT_TYPE cart` on the same systems.
 
-## Basics
+## Optional upper RAM
 
-| Item | Value |
-| --- | --- |
-| CPU | Motorola 6809E |
-| Stock video | MC6847 VDG through the MC6883 SAM |
-| CoCo 3 video | GIME |
-| Text | 32x16 stock VDG text |
-| Code start | `$0E00` for `.bin`, `$C000` for standard cart |
-| Program RAM top | `$6000` |
-| Text screen | `$0400` |
-| PMODE 4 screen | `$6000` to `$77FF` |
-| Page-flip back screen | `$3800` to `$4FFF` |
-| String encoding | Color BASIC ROM text |
-| Input | 8x7 keyboard matrix and two analog joystick ports |
-| Sound | Direct 6-bit DAC output through `$FF20` |
+A 64K CoCo has RAM behind the BASIC and cartridge ROM area. It is not
+normally visible to reads. Enable it explicitly with:
 
-Stock text is uppercase plus graphics characters. Lowercase depends on
-the machine setup.
+```basic
+@OPTION MEMORY_REGION upper_ram
+```
 
-## Current support at a glance
+This selects SAM all RAM mode, masks IRQ and FIRQ, and gives mutable
+program data `$7800` through `$FEFF`. Code stays below the `$6000`
+PMODE 4 screen, so graphics cannot overwrite it. `END` loops instead
+of returning to BASIC.
 
-The status words in this table are deliberate:
+The option removes all Color BASIC, Extended Color BASIC, Disk BASIC,
+and cartridge ROM services. Do not use `KEY`, `INPUT`, file or network
+calls, ROM `REAL` math, `TIMER`, or `TICKS`. Direct hardware APIs such
+as `KEY_HELD`, `FRAME_WAIT`, joystick input, graphics, and sound remain
+available. The compiler reports the region as disabling `rom_services`,
+`basic_return`, and `program_rom`
 
-- **Runtime verified** means the result was seen running in MAME.
-- **Implemented** means the library and focused compiler tests cover it,
-  but this audit did not exercise the hardware behavior.
-- **Partial** means useful behavior exists but the public surface
-  promises more.
-- **Runtime requirement** means the library assumes optional ROM or
-  hardware support that is not present on every CoCo.
+## VDG graphics
 
-| Area | Status | What works now |
-| --- | --- | --- |
-| `.bin` and `.ccc` output | Runtime verified | Standard Program Pak output starts and runs |
-| Stock text | Implemented | 32x16 output and direct cell access |
-| Semigraphics | Runtime verified | Semigraphics 4, 64x32, 8 colors |
-| Hi-res graphics | Runtime verified | PMODE 4, 256x192, 2 colors |
-| Graphics primitives | Runtime verified | Plot, point, horizontal line, line, box, filled box, and circle |
-| Bitmap tiles | Implemented | 8x8 PMODE 4 tile drawing |
-| Images | Implemented | Native 6144-byte PMODE 4 display and Disk BASIC loading |
-| Software sprites | Runtime verified | Two moving 8x8 sprites with page flipping; API maximum is six |
-| Keyboard and joystick | Implemented | Held keys, raw analog axes, digital directions, and one button per port |
-| Frame wait | Runtime verified | Direct 60 Hz VSYNC polling |
-| Frame callback | Partial | Callback runs from `FRAME_WAIT`, not from a hardware interrupt |
-| Sound | Partial | One blocking square-wave voice plus direct DAC writes |
-| Disk files | Runtime requirement | Sequential Disk BASIC files |
-| FujiNet and network | Runtime requirement | DriveWire transport through a compatible ROM |
-| `REAL` math | Implemented | Color BASIC and Extended Color BASIC ROM math |
-| CoCo 3 | Placeholder | Named GIME registers only; stock VDG behavior is inherited |
-| `ON_ERROR` | Stub | Syntax compiles, but no CoCo error trap is installed |
-
-## Stock VDG graphics
-
-crustyBASIC currently exposes three of the stock VDG presentations:
+crustyBASIC exposes every stock VDG presentation by name:
 
 | crustyBASIC mode | Hardware presentation | Size | Colors |
 | --- | --- | --- | --- |
 | `CELL`, `VDG_TEXT` | Alphanumeric | 32x16 cells | text |
-| `BITMAP_MULTICOLOR`, `VDG_SEMIGRAPHICS_4` | Semigraphics 4 | 64x32 pixels | 8 |
-| `BITMAP_HIRES`, `VDG_PMODE_4` | 1-bit graphics | 256x192 pixels | 2 |
+| `BITMAP_LORES`, `VDG_SG4` | Semigraphics 4 | 64x32 | 9 including black |
+| `VDG_SG6` | Semigraphics 6 | 64x48 | 5 including black |
+| `VDG_SG8` | Semigraphics 8 | 64x64 | 9 including black |
+| `VDG_SG12` | Semigraphics 12 | 64x96 | 9 including black |
+| `VDG_SG24` | Semigraphics 24 | 64x192 | 9 including black |
+| `VDG_CG1` | Color graphics 1 | 64x64 | 4 |
+| `VDG_RG1` | Resolution graphics 1 | 128x64 | 2 |
+| `VDG_CG2` | Color graphics 2 | 128x64 | 4 |
+| `VDG_RG2` | Resolution graphics 2 | 128x96 | 2 |
+| `VDG_CG3` | Color graphics 3 | 128x96 | 4 |
+| `VDG_RG3` | Resolution graphics 3 | 128x192 | 2 |
+| `BITMAP_MULTICOLOR`, `VDG_CG6` | Color graphics 6 | 128x192 | 4 |
+| `BITMAP_HIRES`, `VDG_RG6` | Resolution graphics 6 | 256x192 | 2 |
 
 The default graphics mode is `BITMAP_MULTICOLOR`.
 
-The MC6847 and SAM can also produce the following eleven stock modes,
-but the library does not expose them yet:
-
-| Missing presentation | Size | Colors |
-| --- | --- | --- |
-| Semigraphics 6 | 64x48 | 4 |
-| Semigraphics 8 | 64x64 | 8 |
-| Semigraphics 12 | 64x96 | 8 |
-| Semigraphics 24 | 64x192 | 8 |
-| Color graphics | 64x64 | 4 |
-| Resolution graphics | 128x64 | 2 |
-| Color graphics | 128x64 | 4 |
-| Resolution graphics | 128x96 | 2 |
-| Color graphics | 128x96 | 4 |
-| Resolution graphics | 128x192 | 2 |
-| Color graphics | 128x192 | 4 |
-
-This is the largest stock graphics gap. The portable `PMODE` helper
-does not select those modes: mode 0 selects text and every nonzero mode
-selects PMODE 4.
+The CoCo 3 supports the VDG text, SG4, CG, and RG modes. Its GIME does
+not implement SG6, SG8, SG12, or SG24, so those names are available only
+on CoCo 1 and 2 systems.
 
 ### Color behavior
 
-Three-argument `PLOT` uses its color in semigraphics but not in PMODE 4.
-A semigraphics cell carries one of eight colors. PMODE 4 has one bit per
-pixel and one hardware colorset for the whole screen, so a plot can only
-set or clear a pixel.
+The three argument `PLOT` uses its color in semigraphics, VDG color graphics,
+and multicolor GIME modes. VDG resolution graphics and one bit GIME
+modes can only set or clear a pixel.
 
-`GFX_COLOR` changes the semigraphics drawing color and the PMODE 4
+`COLOR` changes the semigraphics drawing color and the PMODE 4
 hardware colorset. Its background argument cannot select a separate
 PMODE 4 pixel color.
 
-The bitmap tile backend defaults to `BITMAP_HIRES`, so
-`TILE_COLOR_AVAILABLE` is `FALSE` after
-`DISPLAY TILE_DEFAULT_DISPLAY_MODE`. It becomes `TRUE` after
-`DISPLAY BITMAP_MULTICOLOR`.
+The bitmap tile backend follows the active mode's plot color support.
 
 ### Extended Color BASIC compatibility
 
@@ -128,10 +89,7 @@ The `extended_color_basic` dialect accepts `PMODE`, `SCREEN`, `PCLS`,
 `PCOPY`, and `DRAW`, but it is not yet a complete Extended Color BASIC
 graphics implementation:
 
-- `PMODE` 1 through 4 all use the same PMODE 4 screen.
 - The `PMODE` page argument is accepted but ignored.
-- `SCREEN` switches only between text and PMODE 4.
-- `PCLS` always clears to zero; its color argument is ignored.
 - `COLOR` uses the foreground to select the hardware colorset; its
   background argument is ignored.
 - Graphics `GET` and `PUT` are not implemented.
@@ -144,6 +102,11 @@ graphics implementation:
   `X` substring command.
 - Mixed text and graphics mode is not implemented.
 
+Both Color BASIC dialects accept `SOUND tone, duration` and `AUDIO ON` or
+`AUDIO OFF`. Pitch follows the ROM tone scale, with tone 89 near middle C,
+and one duration unit lasts about a sixteenth of a second. Both values are
+approximate until checked against a real machine.
+
 ## Images
 
 Native image display supports `IMAGE_FMT_COCO_PM4` for a 6144-byte
@@ -151,37 +114,34 @@ PMODE 4 screen. The converter accepts raw PMODE 4 dumps and DECB
 `.BIN` or `.MAX` files. Bit 0 of the descriptor aux byte selects the
 VDG colorset.
 
-Disk BASIC-backed runtime image loading is present. It has the same
-Disk BASIC runtime requirements and file limitations described below.
+Converted PMODE 4 descriptors use RLE8 when it makes the stored image
+smaller. Embedded images and converted `.img` files are decoded directly
+into the PMODE 4 bitmap. Images that do not shrink stay uncompressed.
 
 ## Software sprites
 
-The CoCo has no hardware sprites. The library provides 8x8,
-one-bit software sprites on the PMODE 4 bitmap. Set
-`SOFT_SPRITE_ACTIVE_COUNT` to the number used by the program, up to
-`SPRITE_MAX_COUNT`, which is six.
+CoCo sprites use the 256x192 PMODE 4 bitmap, with eight software sprite
+slots by default. Flipping, expansion, priority, and pixel collisions are
+supported. Keep the transformed shape within the screen.
 
-Page-flip mode draws against `$3800` and `$6000` and changes the SAM
-display page at frame boundaries. A two-sprite Program Pak was visibly
-stable in MAME. Mutable graphics and sprite bookkeeping now lives in
-RAM in cartridge builds; it is not emitted into Program Pak ROM.
+`SPRITE_COLOR` draws black for zero and the active display foreground for
+any nonzero value. Use `WHITE` for the foreground; `COLOR` selects the
+display colorset. PMODE 4 has no independent sprite palettes, so
+`SPRITE_PALETTE` and `SPRITE_PALETTE_SET` have no effect.
 
-The remaining sprite gaps are:
-
-- `SPRITE_COLOR` does not change the one-bit blit result.
-- `SPRITE_DATA_TILES` ignores its width and height.
-- `SPRITE_EXPAND`, `SPRITE_FLIP_X`, and `SPRITE_FLIP_Y` are no-ops.
-- `SPRITE_PALETTE`, `SPRITE_PALETTE_SET`, and `SPRITE_PRIORITY` are
-  no-ops.
-- `SPRITE_HIT` and `SPRITE_HIT_BG` always return zero.
-- Non-page-flip drawing uses XOR and does not save the background.
+Page flipping is enabled by default, using `$3800` and `$6000`.
+`SPRITES_FLUSH` draws on the hidden page and swaps the displayed page.
+With `SOFT_SPRITE_PAGE_FLIP FALSE`, `SPRITES_FLUSH` draws on the visible
+page. Position, shape, and visibility changes take effect on the next flush.
 
 ## Text and cells
 
 The cell surface writes directly to the 32x16 screen at `$0400`.
-`CELL_ATTRIB_SUPPORTED` is true because inverse text is supported. The color
-attribute setter is empty, so per-cell foreground and background color
-are not available. There is no custom character API.
+`CELL_ATTRIB_SUPPORTED` is true because inverse text is supported. On CoCo 1
+and 2, per cell foreground and background color are not available. CoCo 3
+GIME color text provides separate foreground and background colors plus
+inverse and blinking attributes for each cell. There is no custom character
+API on the Coco.
 
 ## Input
 
@@ -202,59 +162,151 @@ of axes to the portable digital direction mask. `KEY_HELD` polls the
 keyboard matrix without consuming typed input.
 
 The joystick button lines share the keyboard matrix. `JOY_BUTTON`
-currently writes `$FF` to PIA port `$FF02` and does not restore the
-previous keyboard column selection. That can disturb code which
-interleaves its own matrix scan and should be fixed.
+restores the previous keyboard column selection at `$FF02` after
+reading the buttons.
 
-The cassette interface and bit-banged RS-232 interface are not exposed
-through crustyBASIC APIs.
+## Timing
 
-## Timing and frame callbacks
-
-`FRAME_WAIT` polls the PIA VSYNC flag directly, increments
-`FRAME_COUNTER`, and dispatches an installed callback. It assumes
-60 Hz NTSC timing. There is no PAL timing selection.
-
-`FRAME_INSTALL` only stores the callback address. The enable helper is
-a no-op and the callback runs only when the program calls
-`FRAME_WAIT`. `FRAME_INSTALL_SUPPORTED` therefore overstates the
-current behavior if a program expects an interrupt-driven callback.
+`FRAME_WAIT` uses the PIA VSYNC flag. CoCo timing assumes 60 Hz NTSC;
+there is no PAL timing selection.
 
 The general tick source is Color BASIC `TIMER` at `$0112`. It is a
 16-bit 60 Hz counter and wraps in about 18 minutes. Cassette and sound
 ROM activity can mask the IRQ and pause it. A cartridge relies on the
-ROM's existing IRQ setup; the crustyBASIC runtime does not install its
-own timer IRQ.
+ROM's existing IRQ setup.
 
 ## Sound
 
-Sound writes the top six DAC bits through `$FF20` and enables the PIA
-sound gate. Available behavior is:
+Sound goes through the six bit DAC at `$FF20`. Every sound call selects
+the DAC as the sound source and opens the PIA sound gate, so sound works
+after a cassette `AUDIO ON`. Available behavior is:
 
 - one voice
-- blocking square-wave note and tone calls
-- note range 65 through 95
+- blocking note and tone calls
+- note range 36 through 95
 - volume 0 through 15
-- `DAC_OUT` for a single raw 6-bit sample
+- shapes: `SOUND_SHAPE_TONE`, `SOUND_SHAPE_PULSE`, `SOUND_SHAPE_TRIANGLE`,
+  `SOUND_SHAPE_SAW`, and `SOUND_SHAPE_NOISE`
+- `TONE PERIOD, DURATION` plays a square wave for `DURATION` ticks.
+  `PERIOD` is about 55930 divided by the frequency in Hz
+- `TONE PERIOD, DURATION, TRUE` schedules the tone using timed sound
+  so gameplay can continue. `FALSE` plays the tone before returning.
+- `DAC_OUT SAMPLE` sets the sound output level to a value from 0 to 63
+- `SOUND_SOURCE SOURCE` picks what the speaker plays: `SOUND_SOURCE_DAC`,
+  `SOUND_SOURCE_CASSETTE`, `SOUND_SOURCE_CARTRIDGE`, or `SOUND_SOURCE_OFF`
 - `SOUND_OFF` and `SOUND_ALL_OFF`
 
-The `U16` frequency or period surfaces use only the low byte in the
-delay loop. Waveform selection is ignored. Noise, multiple voices,
-background playback, timed PCM streaming, and audio source selection
-are not implemented.
+`PLAY_NOTE` plays a short blip of about 18 ms and returns. `PLAY_NOTE_FOR`
+holds the note for `DURATION` ticks. Both block until done, and
+`SOUND_NOTE_BLOCKING` is `TRUE`.
+Pulse, triangle, and saw step through an eight level table, so they lose
+some pitch accuracy in the top octave. Noise picks a new random level
+every half period, so low notes rumble and high notes hiss.
 
-The July 2026 MAME run advanced through the showcase `BEEP`, but audio
-pitch and duration were not measured.
+For example, `DAC_OUT 32` sets the output near the middle of its range.
+The level stays until changed or silenced with `SOUND_ALL_OFF`.
+A single call does not play a sustained tone.
+
+`SOUND_SOURCE SOUND_SOURCE_CASSETTE` does what Color BASIC `AUDIO ON` does,
+and `SOUND_SOURCE_CARTRIDGE` plays a sound cartridge such as the
+Orchestra-90. Every note, tone, and audio call switches back to the DAC,
+and a joystick read leaves the speaker muted, so select the source again
+afterwards. `SOUND_SOURCE_OFF` closes the sound gate like `AUDIO OFF`.
+
+### Timed sound
+
+Timed sound has one voice and counts durations in frames.
+
+On the CoCo 1 and 2 it is cooperative. `FRAME_WAIT` plays the current
+note while waiting for the next video frame. The tone carries a frame
+rate buzz, and the game loop must call `FRAME_WAIT` every frame.
+`SOUND_TIMED_WAIT` calls `FRAME_WAIT` while it waits.
+
+On the CoCo 3 timed sound runs from the GIME timer and vertical border
+interrupts on FIRQ, so notes play by themselves while the program runs.
+Tone and noise are supported. Pulse, triangle, and saw play as tone. The
+handler is installed at the Color BASIC FIRQ vector `$010F` and removed
+again when the program ends. The program should start from the 32 column
+text screen, which is the GIME state the library assumes.
+
+### Audio
+
+`AUDIO_PLAYBACK_MODEL` is `AUDIO_PLAYBACK_BLOCKING`. `AUDIO_PLAY` streams
+an unsigned 8 bit mono PCM asset through the DAC and returns when the last
+sample has played. Nothing else runs during playback, so keep clips short.
+Memory is the other limit: one second at 8000 Hz takes 8000 bytes.
+
+Sample rates up to about 23 kHz are accepted, and 8000 Hz is a good fit.
+`AUDIO_FILE_SUPPORTED` is `FALSE`, so load embedded assets:
+
+```basic
+@INCLUDE_AUDIO SHOT "assets/shot.wav"
+
+OK = AUDIO_LOAD(ADDR SHOT_AUDIO)
+OK = AUDIO_PLAY
+```
+
+`AUDIO_SOUND_SHARED` is `FALSE`. Silence timed sound before `AUDIO_PLAY`
+on the CoCo 3, since both drive the same DAC.
 
 ## Files
 
-The file provider calls Disk BASIC ROM routines. It assumes a disk
+### Cassette
+
+Use `FILE_CASSETTE_CHANNEL` (255) for one sequential cassette file:
+
+```basic
+FILE_OPEN FILE_CASSETTE_CHANNEL, "SCORES", FILE_MODE_WRITE
+FILE_WRITE_LINE FILE_CASSETTE_CHANNEL, "PLAYER 1"
+FILE_CLOSE FILE_CASSETTE_CHANNEL
+```
+
+Open with `FILE_MODE_READ` to read it back. Byte, string, and line calls
+work with tape. Names use the first eight characters; an empty read name
+accepts the next file. `FILE_STATUS` returns `FILE_OK`, `FILE_EOF`, or a
+Color BASIC error code such as 40 for a tape I/O error.
+
+Tape calls use Color BASIC ROM and need no disk controller. Transfers
+pause the program while the tape runs. Set the recorder to record or
+play before opening the file, and rewind before reading a saved file.
+Append, update, directory, and file commands return `FILE_UNSUPPORTED`.
+`FILE_OPEN_NATIVE` accepts the input/output mode bytes described below;
+its drive argument is ignored for tape.
+
+See [`cassette.cbs`](../../examples/coco/crustybasic/cassette.cbs) for a
+save and reload example.
+
+### Disk
+
+Build a Disk BASIC `.bin` and a 35 track `.dsk` together with:
+
+```text
+crustybasic build examples/coco/crustybasic/disk.cbs -o disk.bin
+```
+
+The disk example enables `disk-image = true` in `disk.config.toml`.
+For other programs, use `--set disk-image=true` or the same config setting.
+Mount the image in drive 0, then enter `LOADM "DISK":EXEC`.
+Program names are uppercase, shortened to eight characters, with a `BIN` extension.
+
+The bundled `cb-coco-dsk-wrap` tool creates the image without external disk tools:
+
+```text
+cb-coco-dsk-wrap decb disk.bin disk.dsk
+```
+
+Files in `<source name>.disk_files/` are included as sequential data files.
+Names use eight characters plus a three character extension; unsupported
+characters become underscores. Duplicate names after shortening report an error.
+File bytes are copied unchanged; use carriage returns for text line endings.
+
+Disk file calls use Disk BASIC ROM routines. They assume a disk
 controller and a recognized Disk BASIC ROM are present at runtime.
 The implementation recognizes the Disk BASIC 1.0 and 1.1 signatures
 currently in the library.
 
-Sequential read and write are implemented. Append, update, and
-directory modes report unsupported. `FILE_OPEN_NATIVE` also accepts
+Sequential read, write, and directory listings are implemented.
+Append and update modes report unsupported. `FILE_OPEN_NATIVE` also accepts
 the Disk BASIC direct mode byte, but random-record field and record
 operations are not implemented.
 
@@ -263,21 +315,24 @@ operations are not implemented.
 the Disk BASIC `NAME/EXT:DRIVE` form; an explicit drive in the path
 overrides `AUX2`.
 
+`FILE_MODE_DIR` lists the whole disk. Use `""` for drive 0 or `":1"`
+for drive 1. Read with `FILE_READ_BYTE` or `FILE_READ_LINE`; each line
+contains a `NAME/EXT` filename followed by a carriage return. Names
+without an extension omit the slash. Deleted entries are skipped and
+the listing ends with `FILE_EOF`. Directory channels keep separate
+read positions and can be used alongside ordinary file channels.
+
 Target-specific helpers are also callable: `DISK_OPEN`, `DISK_CLOSE`,
 `DISK_READ_BYTE`, `DISK_WRITE_BYTE`, `DISK_SET_NAME`, and
 `DISK_ENSURE`.
 
 Known correctness and safety gaps:
 
-- `FILE_SUPPORTED` and `IMAGE_FILE_SUPPORTED` are true for every CoCo
+- `IMAGE_FILE_SUPPORTED` is true for every CoCo
   system even when Disk BASIC hardware and ROM are absent.
-- `FILE_READ_LINE` does not stop on `FILE_EOF`. A file without a
-  carriage return can loop after EOF.
 - `DISK_SET_NAME` does not bound the path while copying it into the
   eleven-byte Disk BASIC name and extension work area. A long path can
   overwrite adjacent ROM workspace.
-- Disk file behavior was compile-tested but not run against a disk
-  image during this audit.
 
 ## FujiNet and network
 
@@ -322,12 +377,8 @@ Extended Color BASIC. Fractional powers do.
 
 ## CoCo 3 audit
 
-The `coco.3` system currently inherits the stock 32x16 text, PMODE 4,
-semigraphics, memory ceiling, and runtime behavior from `coco.ecb`.
-`include/targets/coco/helpers/three_gime.cbi` is an explicit
-placeholder.
-
-The manifest exposes these named GIME registers:
+The `coco.3` system provides the GIME graphics, text, palette, video
+offset, and MMU register names. The manifest exposes:
 
 - `$FF90` `INIT0`
 - `$FF91` `INIT1`
@@ -340,29 +391,23 @@ The manifest exposes these named GIME registers:
 - `$FF9C` `VSCROLL`
 - `$FF9D` and `$FF9E` video offset
 - `$FF9F` `HOFF`
+- `$FFA0` through `$FFAF` MMU task entries
 - `$FFB0` through `$FFBF` palette entries
 
-The MMU registers at `$FFA0` through `$FFAF` are not in the manifest.
-There are also no library calls for MMU mapping, 1.78 MHz mode, GIME
-interrupts, timer setup, palette management, border color, scrolling,
-or video offset.
+Native bitmap names use `GIME_<width>X<height>_<colors>`. The guaranteed
+width/color pairs are 128, 160, 256, and 320 pixels with 2, 4, or 16
+colors, plus 512 and 640 pixels with 2 or 4 colors. Every pair has 192,
+200, and 225-line variants.
 
-The CoCo 3 hardware adds 32, 40, and 80-column text with attributes,
-plus graphics widths of 160, 256, 320, 512, and 640 pixels. Depending
-on width, it supports 2, 4, or 16 colors and 192, 200, or 225 lines.
-None of those native text or graphics modes is currently exposed.
+Native text names are `GIME_TEXT_32`, `GIME_TEXT_40`, `GIME_TEXT_64`,
+and `GIME_TEXT_80`. The matching `_COLOR` names enable one attribute
+byte per cell with 8 foreground and 8 background choices. Portable
+`CELL` selects `GIME_TEXT_40_COLOR`. Each cell displays two colors,
+so `CELL_COLORS_PER_CELL` is `2`.
 
-The missing native graphics combinations are:
-
-- 640 pixels with 2 or 4 colors
-- 512 pixels with 2 or 4 colors
-- 320 pixels with 4 or 16 colors
-- 256 pixels with 2, 4, or 16 colors
-- 160 pixels with 16 colors
-
-Real CoCo 3 support is the largest machine-specific improvement
-opportunity after correcting capability claims that are currently
-false.
+Portable `BITMAP_LORES` keeps the compatible SG4 display. On CoCo 3,
+`BITMAP_HIRES` selects `GIME_640X192_2` and `BITMAP_MULTICOLOR` selects
+`GIME_320X192_16`.
 
 ## Improvement order
 
@@ -370,19 +415,14 @@ The audit suggests this order:
 
 1. Correct capability claims and unsafe runtime assumptions:
    `ON_ERROR_SUPPORTED`, Disk BASIC availability, FujiNet detection,
-   `FILE_READ_LINE` EOF handling, bounded Disk BASIC names,
-   `JOY_BUTTON` PIA restoration, and the meaning of
-   `FRAME_INSTALL_SUPPORTED`.
-2. Add real CoCo 3 support: MMU registers and mapping, fast CPU mode,
-   40/80-column text, native bitmap modes, palette, scrolling, timer,
-   and interrupts.
-3. Add the eleven missing stock VDG modes and make Extended Color BASIC
-   `PMODE`, pages, `PCOPY`, graphics `GET`/`PUT`, and mixed mode real.
-4. Complete software sprite collision, flip, expansion, color,
-   palette, priority, and background preservation.
+   `FILE_READ_LINE` EOF handling, and bounded Disk BASIC names.
+2. Complete CoCo 3 fast CPU mode, scrolling, timer, and interrupts.
+3. Complete Extended Color BASIC pages, `PCOPY`, graphics `GET`/`PUT`,
+   and mixed mode.
+4. Add software sprites for color graphics modes with palette support.
 5. Improve sound with nonblocking playback, full period handling,
    noise, and timed sample output.
-6. Add cassette and serial interfaces and runtime tests for disk,
+6. Add serial interfaces and runtime tests for disk,
    keyboard, joystick, sound, and FujiNet.
 
 ## Verification performed

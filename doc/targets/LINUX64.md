@@ -42,12 +42,16 @@ build and run without SDL2 when they do not use sound or audio.
 
 ## Terminal
 
-`PRINT`, `CLS`, `POSITION`, `TEXT_COLOR`, `CURSOR_HIDE`, and
+`PRINT`, `CLS`, `POSITION`, `COLOR`, `CURSOR_HIDE`, and
 `CURSOR_SHOW` use the terminal. Keyboard input uses raw terminal input.
 The original input mode and visible cursor are restored when the program
 exits normally or receives Ctrl C.
 
-`TEXT_COLOR_RGB` accepts red, green, and blue values from 0 through 255
+`RAWKEY` and `RAWKEY_CODE` read typed characters, like `INKEY` and
+`INKEY_CODE`. They do not report whether a key is held or released,
+including over SSH. `KEY_HELD_SUPPORTED` is false.
+
+`COLOR_RGB` accepts red, green, and blue values from 0 through 255
 and selects the nearest fixed xterm-256 color cube or grayscale entry.
 
 `TEXT_WIDTH` and `TEXT_HEIGHT` use the current terminal size when stdout
@@ -89,6 +93,19 @@ The portable sound API provides four square wave voices through SDL2.
 Prepared audio accepts PCM WAV data from an embedded CBA asset or a file.
 Playback advances automatically. `SOUND_PRESENT` tries to open the SDL2
 output used by portable notes.
+
+For headless runs, select SDL2's silent audio driver to avoid ALSA device
+errors:
+
+```sh
+SDL_AUDIODRIVER=dummy ./your-program.elf
+```
+
+To use silent audio for all programs launched from the current shell:
+
+```sh
+export SDL_AUDIODRIVER=dummy
+```
 
 ## Visual APIs
 

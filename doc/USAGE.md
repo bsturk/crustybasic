@@ -11,7 +11,7 @@ By default, crustyBASIC builds a program you can run:
 crustybasic examples/c64/crustybasic/color_banner.cbs -o color_banner.prg
 ```
 
-You can write `build` explicitly to do the same thing:
+You can use `build` explicitly to do the same thing:
 
 ```bash
 crustybasic build examples/c64/crustybasic/color_banner.cbs -o color_banner.prg
@@ -52,7 +52,7 @@ An example can say what it needs:
 
 If a requirement is false for the selected target, `build-examples`
 skips that example and prints a warning. Use `--keep-going-requires` to
-ignore `@REQUIRES` and try the build anyway. Add `--keep-going` if one
+ignore `@REQUIRES` and try the build anyway. Add `-k or --keep-going` if one
 failed build should not stop the rest.
 
 ## Commands
@@ -80,7 +80,10 @@ the same thing as `crustybasic build <input.cbs>`.
 | `.cbs` | crustyBASIC source |
 | `.bas` | BASIC source, commonly used for compatibility listings |
 | `.cbi` | crustyBASIC include |
-| `.cbfont` | crustyBASIC font |
+| `.cbfont` | portable font resource with glyph mapping and spacing |
+| `.ctm` | CharPad project accepted by the charset, charmap, tileset, tilemap, and C64 or C128 image importers |
+| `.png` | Indexed image accepted by image, sprite, and declared tile importers |
+| `.spd` | SpritePad project accepted by `@INCLUDE_SPRITE` |
 
 ## Command line flags
 
@@ -92,7 +95,7 @@ the same thing as `crustybasic build <input.cbs>`.
 | `--keep-going-requires` | Build examples even when their `@REQUIRES` check does not match. |
 | `--set key=value` | Set or replace a compile option. |
 | `--emit-asm path` | Keep the assembly file produced during a `build`. |
-| `--size-report` | After a successful `build`, show output sizes, memory use, cartridge banks, and estimated free space. Exact, estimated, and partial values are labeled. |
+| `--size-report` | After a successful `build`, show output sizes, memory use, mapper banks, and estimated free space. Exact, estimated, and partial values are labeled. |
 | `--emit-ir` | Print a detailed listing for diagnosing compilation problems. |
 | `--timings` | Show how long compilation takes, split into its main steps. |
 | `--debug` | Set `DEBUG` to 1 and enable `@ASSERT`. Without it, `DEBUG` is 0 and `@ASSERT` is ignored. |
@@ -125,7 +128,7 @@ These options can be set from the command line with `--set key=value`:
 | `system` | Any exact system shown by `crustybasic options` | Choose an exact system. |
 | `dialect` | Any dialect shown by `crustybasic options` | Choose a set of source compatibility rules. |
 | `rom` | Target specific ROM name | Choose which ROM services the program can use. |
-| `mapper` | Target specific mapper name | Choose how cartridge storage is arranged. |
+| `mapper` | Mapper name or `name(PROVIDER,bank)` | Choose a mapper using defaults or an explicit provider and physical bank. |
 | `output-type` | Target specific output name | Choose the runnable format to build. |
 | `tile-backend` | `cell`, `hardware`, `bitmap`, `kernel` | Choose which kind of screen the TILE API uses. |
 | `optimize` | `default`, `speed`, `size` | Favor speed, size, or the default balance. |
@@ -136,7 +139,7 @@ These options can be set from the command line with `--set key=value`:
 | `type-policy` | Any policy shown by `crustybasic options` | Choose suffix meanings and types for names without an explicit type. |
 | `array-base` | `0`, `1` | Choose the first array index. |
 | `region` | `REGION_NTSC`, `REGION_PAL` | Choose timing data for systems that differ by region. |
-| `throttle` | `0` through `65535` | Add a delay that approximates interpreted BASIC timing. |
+| `throttle` | `0` through `65535`; some targets allow more | Add a delay that approximates interpreted BASIC timing. |
 | `ram-top` | Decimal or hex with `$` or `0x` | Set the highest address crustyBASIC may use for variables and other changeable data. |
 | `start-program` | Decimal or hex with `$` or `0x` | Set the program's load address when the selected format supports it. |
 | `start-code` | Decimal or hex with `$` or `0x` | Set the address where program code starts. |
@@ -185,6 +188,7 @@ with `--set`:
 | --- | --- | --- |
 | `string-default-capacity` | `1` through `256` | Set the usable capacity of a plain `STRING` declaration. |
 | `string-bounds-checks` | `true` or `false` | Check whole string assignments and appends while the program runs. The default is `false`. |
+| `memory-fit-checks` | `true` or `false` | Treat a program that runs past the target memory map as an error. `false` builds it with warnings instead. The default is `true`. |
 | `startup` | Name listed on the target page | Choose how the program starts on the target. |
 | `memory-regions` | One or more target region names | Let crustyBASIC use these named memory regions. |
 | `memory-actions` | One or more target action names | Request extra setup named by the target page. |
@@ -309,13 +313,14 @@ You can also set `target` or `system` in a config file; see
 over config and source settings. A target or system supplied by the
 dialect only applies when nothing else has chosen one.
 
-## Cartridge mappers
+## Mappers
 
-A cartridge mapper controls how a cartridge is divided. A simple mapper
-uses one fixed area. A banked mapper divides a larger cartridge into
-numbered banks that the program uses as needed.
+A mapper controls how program code and data are arranged. Cartridge
+mappers divide ROM into fixed and switched areas. Other mappers can load
+overlays or switch RAM while the output remains a normal disk image.
 
-`MAPPER` only applies to cartridge output. Choose one in source:
+The output type chooses the container. The mapper chooses the layout and
+bank switching method. Choose one in source:
 
 ```basic
 @OPTION OUTPUT_TYPE cart
@@ -328,16 +333,28 @@ Or choose it on the command line:
 crustybasic build program.cbs --set output-type=cart --set mapper=name
 ```
 
-You can leave out `OUTPUT_TYPE` when cartridge is already the system's
-default output. Output and mapper names depend on the target.
+The plain mapper form uses its target defaults. Some mappers also accept
+an explicit storage provider and physical bank:
+
+```basic
+@OPTION MAPPER name(PROVIDER, 0)
+```
+
+The same selection can be passed on the command line as
+`--set 'mapper=name(PROVIDER,0)'`. The explicit form is accepted only for
+providers declared by that mapper.
+
+You can leave out `OUTPUT_TYPE` when the output extension or system default
+already selects the right container. Output and mapper names depend on the
+target.
 
 Run `crustybasic options` to see the available mapper names. The
 [`targets/`](targets/) pages explain each target's default layout, bank
-size, cartridge limits, and any extra files it needs.
+size, provider choices, limits, and any extra files it needs.
 
 ## Banked builds
 
-A banked cartridge is divided into numbered sections that are not all
+A banked build is divided into numbered sections that are not all
 available at once. Some banks stay available, while others are selected
 as needed. The matching [target page](targets/) explains when PROCs and
 DATA can be used across banks.
@@ -351,18 +368,19 @@ DATA 1, 2, 3
 @ENDBANK
 ```
 
-When `@INCLUDE_BIN` or `@INCLUDE_IMAGE` appears inside the block, its
-`CONST` array goes into the same bank.
+When the embedded form of `@INCLUDE_FILE` or `@INCLUDE_IMAGE` appears inside
+the block, its `CONST` array goes into the same bank.
 
 These are the controls you will normally use:
 
 | Control | What it does |
 | --- | --- |
-| `@OPTION OUTPUT_TYPE name` or `--set output-type=name` | Choose a cartridge output. |
-| `@OPTION MAPPER name` or `--set mapper=name` | Choose the cartridge layout. |
+| `@OPTION OUTPUT_TYPE name` or `--set output-type=name` | Choose the output container. |
+| `@OPTION MAPPER name` or `--set mapper=name` | Choose a mapper using its defaults. |
+| `@OPTION MAPPER name(PROVIDER, bank)` | Choose a mapper provider and physical bank explicitly. |
 | `@BANK N ... @ENDBANK` | Put the enclosed PROCs, CONST arrays, and DATA in program bank `N`. |
 | `--emit-asm path` | Keep the assembly files created for the main program and its banks. |
-| `--size-report` | Show used and available space in the cartridge banks. |
+| `--size-report` | Show used and available space in the mapper banks. |
 
 See [`@BANK` / `@ENDBANK`](LANGUAGE.md#bank--endbank) for the exact
 source rules. The [`targets/`](targets/) pages explain the layouts
@@ -419,6 +437,7 @@ Config files also support these project settings:
 | `build-examples` | Set this to `false` to skip the source during `build-examples`. |
 | `build-example-targets` | In the top example folder, limit example builds to these target families. |
 | `bit-on-char`, `bit-off-char` | Choose the two characters used in visual binary literals. |
+| `block-comment-start`, `block-comment-end` | Set paired block comment delimiter lists. See [Comments](LANGUAGE.md#comments). |
 
 The options that only work in config and source are listed under
 [Compile options](#compile-options). A config file can also define a custom
@@ -486,6 +505,20 @@ spelling preferences for the folder:
 assembly syntax. Run `crustybasic targets` to see the assembler and
 executable name expected for each system.
 
+The table lists the preferred assembler for each target. Download only
+the ones needed by the targets you use.
+
+| Targets | Required executable | Download |
+| --- | --- | --- |
+| `apple2`, `atari2600`, `atari5200`, `atari7800`, `atari800`, `c128`, `c64`, `nes`, `plus4` `vic20` | `vasm6502_oldstyle` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasm6502_oldstyle_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `mc10` | `vasm6800_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `coco`, `dragon` | `vasm6809_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `mac` | `vasmm68k_mot` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `dos16`, `h120`, `linux64`, `pcjr`, `tandy1000`, `win64` | `nasm` | [NASM downloads](https://www.nasm.us/pub/nasm/releasebuilds/) |
+| `ps1` | `mipsel-none-elf-gcc` | [PSn00bSDK toolchain](https://github.com/Lameguy64/PSn00bSDK) |
+| `psp` | `psp-gcc` plus the PSPSDK packaging tools | [PSPDEV installation](https://pspdev.github.io/installation.html) |
+| `sorcerer` | `vasmz80_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+
 crustyBASIC looks for that executable in the paths set for the target. A
 release bundle contains the matching
 `tools/assemblers/<assembler>/<platform>/` folder, but not the assembler
@@ -493,10 +526,33 @@ itself. Put a compatible executable there, or give its path with
 `--assembler`. If the system needs another build tool and it is missing,
 `build` tells you what it needs.
 
-To choose an assembler for one build, pass its path directly:
+The platform folder names are:
+
+| Host | Folder |
+| --- | --- |
+| Windows 64 bit | `windows-x86_64` |
+| Linux x86-64 | `linux-x86_64` |
+| macOS Apple silicon | `macos-aarch64` |
+| macOS Intel | `macos-x86_64` |
+
+For example, using the Atari 7800, a user on Windows extracts
+`vasm6502_oldstyle.exe` to:
+
+```text
+tools\assemblers\vasm\windows-x86_64\vasm6502_oldstyle.exe
+```
+
+On Linux or macOS, make a downloaded or locally built executable runnable
+before using it:
 
 ```bash
-crustybasic build hello.cbs --assembler /path/to/vasm6502_oldstyle -o hello.prg
+chmod +x /path/to/vasm6502_oldstyle
+```
+
+To choose an different path for an assembler for one build, pass its path directly:
+
+```bash
+crustybasic build hello.cbs --assembler /path/to/vasm6502_oldstyle
 ```
 
 To keep the choice, create `crustybasic.toml` beside the crustyBASIC
@@ -504,7 +560,7 @@ executable and set the assembler for that target. This is the tool
 config, not the `crustybasic.config.toml` used by individual programs:
 
 ```toml
-[targets.c64]
+[targets.atari7800]
 assembler = "/path/to/vasm6502_oldstyle"
 ```
 
@@ -515,6 +571,22 @@ folder.
 
 Use `--crustybasic-toml path` to try a tool config without putting it
 beside the crustyBASIC executable.
+
+For a first Atari 7800 build, save this as `hello.cbs`:
+
+```basic
+@OPTION TARGET atari7800
+
+PRINT "HELLO, ATARI 7800!"
+```
+
+Then build it:
+
+```bash
+crustybasic hello.cbs
+```
+
+This writes `hello.a78`.
 
 ## Outputs and extra files
 
@@ -589,8 +661,9 @@ feel closer to the original.
 crustybasic compile game.bas --set dialect=applesoft_basic --set throttle=8 -o game.s
 ```
 
-Set throttling to `0` to turn it off. Code that can run from an `@ASYNC`
-PROC is not throttled. Start with a small value and adjust it by feel.
+Set throttling to `0` to turn it off. Code that can run from an interrupt
+callback or an explicit `@ASYNC` PROC is not throttled. Start with a
+small value and adjust it by feel.
 
 ## Example layout
 

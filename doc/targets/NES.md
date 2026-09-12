@@ -68,10 +68,22 @@ Native image display supports `IMAGE_FMT_NES_SCREEN`: 16 palette bytes,
 1024 nametable and attribute bytes, and 4096 pattern table bytes.
 The converter accepts a `--chr`, `--nam`, and `--pal` file triplet, and
 indexed PNG or PCX sources. Images are linked into the program rather
-than loaded from files at runtime.
+than loaded from files at runtime. Converted images use RLE8 when it
+makes them smaller and otherwise keep the original 5136 byte payload.
 
 CHR ROM builds skip the pattern-table upload; the image must use tile
 data already present in the supplied CHR file.
+
+Wipes and slides use 16 by 16 pixel cells and move their palettes with
+them. They start with a blank screen and require a blank tile in the
+image's pattern data. Fades darken the background palette in four steps.
+Wipes, slides, fade in, and dissolve in require unpacked images.
+
+Dissolves support 1, 2, 4, and 8 pixel blocks on CHR RAM builds. They
+change tile patterns, so repeated copies of a tile dissolve together.
+CHR ROM builds support wipes, slides, and fades, but cannot dissolve
+read only tile patterns. Updates wait for video memory access, even
+with a delay of zero.
 
 ## PPU
 
@@ -108,9 +120,13 @@ The NES has 64 hardware sprites in OAM. Sprite calls use those sprites.
 Sprite data selects a tile index. It does not copy bytes from that value
 as an address.
 
-Sprite writes update a RAM OAM shadow at `$0700-$07FF`. Sprite flushing
-waits for the next frame; the NMI handler performs OAM DMA from that
-shadow page.
+`SPRITE_COLOR` shares four palettes between sprites. If a new color
+cannot fit, the sprite keeps its current palette; a sprite without a
+palette uses palette 0.
+
+Sprite writes update a RAM OAM shadow at `$0700-$07FF`. The NMI handler
+copies that shadow page each frame. Call `FRAME_WAIT` after sprite updates
+to wait until they are displayed.
 
 ## Sound
 
