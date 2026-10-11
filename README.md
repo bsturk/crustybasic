@@ -1,9 +1,9 @@
 ```text
-         .---------------------------.      ____                 _        ____    _    ____ ___ ____
-        /---------------------------/|     / ___|_ __ _   _  ___| |_ _   | __ )  / \  / ___|_ _/ ___|
-       /| _________________________ ||    | |   | '__| | | |/ __| __| | ||  _ \ / _ \ \___ \| | |
-      | | |                       | ||    | |___| |  | |_| |\__ \ |_| |_|| |_) / ___ \ ___) | | |___
-      | | | 10 PRINT "CRUSTYBASIC"| ||     \____|_|   \__,_||___/\__|\__,|____/_/   \_\____/___|____|
+         .---------------------------.                           _        ____    _    ____ ___ ____
+        /---------------------------/|       ___ _ __ _   _  ___| |_ _   | __ )  / \  / ___|_ _/ ___|
+       /| _________________________ ||      / __| '__| | | |/ __| __| | ||  _ \ / _ \ \___ \| | |
+      | | |                       | ||     | (__| |  | |_| |\__ \ |_| |_|| |_) / ___ \ ___) | | |___
+      | | | 10 PRINT "CRUSTYBASIC"| ||      \___|_|   \__,_||___/\__|\__,|____/_/   \_\____/___|____|
       | | | 20 GOTO 10            | ||                                |___/
       | | | RUN                   | ||
       | | | _                     | ||
@@ -24,17 +24,25 @@
 
 # crustyBASIC
 
-CrustyBASIC is a Rust-based BASIC cross-compiler for vintage
-computers and video game consoles as well as modern systems. It compiles BASIC 
-source into native machine code to run faster.  It is available 
-for Windows, MacOS, and Linux.
+crustyBASIC is a Rust based BASIC cross compiler for vintage
+computers and video game consoles as well as modern systems. It compiles BASIC
+source into native machine code that runs much faster than interpreted BASIC.
+The compiler runs on Windows, macOS, and Linux.
 
-## Portable and Native
+## Your BASIC, your target
 
-CrustyBASIC supports both portable programs and direct hardware access. Shared
-graphics, sound, input, file, tile, and sprite APIs work across targets, while
-target APIs expose native display modes, memory, hardware sprites, and chips
-such as SID, POKEY, and PSG.
+**Write in a familiar BASIC dialect or use crustyBASIC's own syntax.**
+
+Supported [dialects](doc/LANGUAGE.md#dialects) include Sinclair BASIC,
+Commodore BASIC, Applesoft BASIC, Atari BASIC, QBasic, and more.
+Select one with `@OPTION DIALECT`, such as `@OPTION DIALECT sinclair_basic`.
+Dialect programs can use crustyBASIC's APIs and target other systems too,
+such as QBasic on the C128, provided the program's features are available
+on the target.
+
+Write portable programs with shared graphics, sound, input, file, tile,
+and sprite APIs, or build for a specific machine using its native display
+modes, memory, hardware sprites, and chips such as SID, POKEY, and PSG.
 
 Image and audio support includes both portable sources and native machine
 formats. Assets can be embedded, converted, or loaded from storage.
@@ -43,7 +51,7 @@ See the [API reference](doc/API.md) and [target documentation](doc/targets/).
 **Currently supported targets:**
 
 - Apple
-    - ][+, //c, //e
+  - ][+, //c, //e
 - Atari
   - 400/800/XL/XE
   - 5200
@@ -54,12 +62,15 @@ See the [API reference](doc/API.md) and [target documentation](doc/targets/).
   - 128
   - Plus/4
   - VIC-20
+  - Amiga 500, 600, 1200
 - Tandy/Radio Shack
-  - Coco 1, 2, 3
+  - CoCo 1, 2, 3
+  - 1000 HX/SX/etc.
 - PC
-    - MS-DOS 16-bit
-    - Windows 64 bit GDI and console (`win64`, Win XP...Win 11)
-    - Linux x64 console (`linux64`)
+  - MS-DOS 16 bit
+  - IBM PCjr
+  - Windows 64 bit graphics and console (`win64`, Win Vista...Win 11)
+  - Linux x64 console (`linux64`)
 - Nintendo
   - NES
 - Sinclair
@@ -68,15 +79,15 @@ See the [API reference](doc/API.md) and [target documentation](doc/targets/).
   - Timex Sinclair 1000
 - Many more to come!!
 
-## Downloading the Compiler
+## Downloading the compiler
 
-To download the latest compiled binaries, visit the **[Releases Section](https://github.com/bsturk/crustybasic/releases)**.
+To download the latest compiled binaries, visit the **[Releases page](https://github.com/bsturk/crustybasic/releases)**.
 
-## Downloading the Assembler
+## Downloading the assembler
 
-Building programs requires the target's assembler; see [USAGE.md#assemblers](doc/USAGE.md#assemblers).
+Building programs requires the target's assembler; see [Assemblers](doc/USAGE.md#assemblers) in the usage guide.
 
-## Quick Start
+## Quick start
 
 ### Build for one target
 
@@ -93,20 +104,21 @@ PRINT "HELLO, C64!"
 Build the runnable program:
 
 ```bash
-crustybasic.exe hello.cbs
+crustybasic hello.cbs
 ```
 
-For the C64, this writes `hello.prg` by default. Use `-o` only to
-choose a different name. You can also write the command explicitly:
+For the C64, this writes `hello.prg` under `build/` and prints its
+path. Use `-o` to choose a different path. You can also write the
+command explicitly:
 
 ```bash
-crustybasic.exe build hello.cbs
+crustybasic build hello.cbs
 ```
 
 To stop after generating assembly instead, use `compile`:
 
 ```bash
-crustybasic.exe compile hello.cbs -o hello.s
+crustybasic compile hello.cbs -o hello.s
 ```
 
 ### Build for several targets
@@ -117,25 +129,25 @@ leave out the `@OPTION TARGET c64` line:
 ```basic
 CLS
 POSITION 0, 0
-PRINT "HELLO, {target}!"
+PRINT "HELLO, {target}"
 ```
 
 ```bash
-crustybasic.exe build hello.cbs --set target=c64
-crustybasic.exe build hello.cbs --set target=atari800
-crustybasic.exe build hello.cbs --set target=zx81
+crustybasic build hello.cbs --set target=c64
+crustybasic build hello.cbs --set target=atari800
+crustybasic build hello.cbs --set target=zx81
 ```
 
 Each command creates the usual runnable file for that target, and
-`{target}` is replaced with its target name. 
+`{target}` is replaced with its target name.
 
 ### Use target native features
 
-This uses the C64's included Koala image support and talks directly to VIC-II and SID:
+This shows a Koala image and talks directly to the VIC-II and SID:
 
 ```basic
 @OPTION TARGET c64
-@INCLUDE_IMAGE TITLE "examples/c64/crustybasic/CRUSTY.KLA"
+@INCLUDE_IMAGE TITLE "CRUSTY.KLA"
 
 VIC.BORDER = BLACK
 OK         = IMAGE_LOAD(ADDR TITLE_IMAGE)
@@ -150,24 +162,24 @@ SID.GATE_OFF 0
 
 ## Screenshots
 
-Screenshots and emulator pics are in [screenshots](./screenshots).
+Screenshots are in the [screenshots](https://github.com/bsturk/crustybasic/tree/main/screenshots) folder.
 
 ## Community
 
-- [Discord](https://discord.gg/hCJf2Pcph) - join the discussions
-- [itch.io](https://telengard.itch.io/crustybasic) - visit the CrustyBASIC page
+- [Discord](https://discord.gg/JbYXZZur) - join the discussions, get access to betas
+- [itch.io](https://telengard.itch.io/crustybasic) - the main crustyBASIC page
 
-## Submitting Bugs
+## Submitting bugs
 
-Please submit bug reports through the GitHub Issues tab above or on Discord.
-Include the CrustyBASIC version, your operating system, the target or system you
+Please submit bug reports through [GitHub Issues](https://github.com/bsturk/crustybasic/issues) or on Discord.
+Include the crustyBASIC version, your operating system, the target or system you
 are building for, the command you ran, and any compiler or assembler output.
 
-Small self-contained `.cbs` files are the easiest reports for me to reproduce.
+A small, self contained `.cbs` file that shows the problem is the easiest for me to reproduce.
 
 ## Learn more
 
 - [**Usage guide**](doc/USAGE.md) - commands, targets, dialects, assemblers, and examples.
 - [**Language reference**](doc/LANGUAGE.md) - core language syntax.
 - [**API reference**](doc/API.md) - shared runtime calls, graphics, sound, input, and target capabilities.
-- [**Target documentation**](doc/targets/) - native formats, display modes, chip APIs, and machine-specific limits.
+- [**Target documentation**](doc/targets/) - native formats, display modes, chip APIs, and machine specific limits.
