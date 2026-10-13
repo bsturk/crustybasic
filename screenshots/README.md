@@ -189,6 +189,10 @@ era listings compiled with crustyBASIC.
   </tr>
   <tr>
     <td align="center" valign="top">
+      <img src="mouse_paint-amiga.png" width="350" alt="mouse_paint-amiga.png"><br>
+      <sub><b>mouse_paint-amiga.png</b></sub>
+    </td>
+    <td align="center" valign="top">
       <img src="pac_chase-cell-c64.png" width="350" alt="pac_chase-cell-c64.png"><br>
       <sub><b>pac_chase-cell-c64.png</b></sub>
     </td>
@@ -200,12 +204,16 @@ era listings compiled with crustyBASIC.
       <img src="rebound-atari_basic-dialect.png" width="350" alt="rebound-atari_basic-dialect.png"><br>
       <sub><b>rebound-atari_basic-dialect.png</b></sub>
     </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <img src="rebound-c64.png" width="350" alt="rebound-c64.png"><br>
+      <sub><b>rebound-c64.png</b></sub>
+    </td>
     <td align="center" valign="top">
       <img src="snake-cell-c64.png" width="350" alt="snake-cell-c64.png"><br>
       <sub><b>snake-cell-c64.png</b></sub>
     </td>
-  </tr>
-  <tr>
     <td align="center" valign="top">
       <img src="snake-nes.png" width="350" alt="snake-nes.png"><br>
       <sub><b>snake-nes.png</b></sub>
@@ -214,6 +222,8 @@ era listings compiled with crustyBASIC.
       <img src="snake-vic20.png" width="350" alt="snake-vic20.png"><br>
       <sub><b>snake-vic20.png</b></sub>
     </td>
+  </tr>
+  <tr>
     <td align="center" valign="top">
       <img src="sprite-cb-nes.png" width="350" alt="sprite-cb-nes.png"><br>
       <sub><b>sprite-cb-nes.png</b></sub>
@@ -222,8 +232,6 @@ era listings compiled with crustyBASIC.
       <img src="sprite_storm-nes.png" width="350" alt="sprite_storm-nes.png"><br>
       <sub><b>sprite_storm-nes.png</b></sub>
     </td>
-  </tr>
-  <tr>
     <td align="center" valign="top">
       <img src="taipan-applesoft-dialect.png" width="350" alt="taipan-applesoft-dialect.png"><br>
       <sub><b>taipan-applesoft-dialect.png</b></sub>
@@ -232,6 +240,8 @@ era listings compiled with crustyBASIC.
       <img src="ted_palette-plus4-cb.png" width="350" alt="ted_palette-plus4-cb.png"><br>
       <sub><b>ted_palette-plus4-cb.png</b></sub>
     </td>
+  </tr>
+  <tr>
     <td align="center" valign="top">
       <img src="tile_neon-dos16-cb.png" width="350" alt="tile_neon-dos16-cb.png"><br>
       <sub><b>tile_neon-dos16-cb.png</b></sub>
@@ -240,14 +250,10 @@ era listings compiled with crustyBASIC.
       <img src="vdc_speed_xfer-c128-cb.png" width="350" alt="vdc_speed_xfer-c128-cb.png"><br>
       <sub><b>vdc_speed_xfer-c128-cb.png</b></sub>
     </td>
-  </tr>
-  <tr>
     <td align="center" valign="top">
       <img src="vga_burst-dos16-cb.png" width="350" alt="vga_burst-dos16-cb.png"><br>
       <sub><b>vga_burst-dos16-cb.png</b></sub>
     </td>
-    <td></td>
-    <td></td>
     <td></td>
   </tr>
 </table>
