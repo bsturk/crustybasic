@@ -61,14 +61,28 @@ drawing and `TEXT_WIDTH` / `TEXT_HEIGHT` for the cell grid.
 Each target supports its own set of display modes. See the target pages
 under [`targets/`](targets/) for the full list.
 
-Along with target specific modes, `DISPLAY(mode)` accepts `CELL`,
+Along with target specific modes, `DISPLAY(mode)` accepts `CONSOLE`, `CELL`,
 `CELL_MULTICOLOR`, `BITMAP_HIRES`, `BITMAP_LORES`, and
 `BITMAP_MULTICOLOR`. After a successful change, `DISPLAY_WIDTH`,
 `DISPLAY_HEIGHT`, `GFX_BPP`, `GFX_COLOR_COUNT`, `PLOT_COLOR_COUNT`, and
 `GFX_ROW_BYTES` describe the new mode.
 
+`CONSOLE` selects host text output. `CELL` selects a cell display.
+Some targets start in `CONSOLE`; others start in `CELL`. Check
+`DISPLAY_HAS_MODE(CONSOLE)` before selecting console output.
+
 Use `DISPLAY(mode)` before drawing. Later graphics calls then use the
-right size, coordinates, and colors for that mode.
+right size, coordinates, and colors for that mode. For a blank screen,
+call `CLS` after selecting the mode:
+
+```basic
+IF DISPLAY(BITMAP_MULTICOLOR) THEN
+	CLS
+ENDIF
+```
+
+`CLS` clears the current display. Clearing before a mode change does not
+prepare the screen for the new mode.
 
 `BITMAP_HIRES_PIXEL_COLORS` gives the guaranteed number of `COLOR` values
 per independent pixel in `BITMAP_HIRES`, or `0` when no guarantee is available.
@@ -79,15 +93,41 @@ guarantee six independent pixel colors.
 | ------------------------------------------------ | --------------------------------------------- |
 | `DISPLAY()`                                      | Use the target's default drawing mode. Returns `1` on success or `0` when unavailable. |
 | `DISPLAY(mode)`                                  | Use a specific display mode. Returns `1` on success or `0` when unsupported. |
+| `DISPLAY_HIDE()`                               | Hide the display without clearing its contents. |
+| `DISPLAY_SHOW()`                               | Show the current display contents. |
 | `DISPLAY_MIXED(mode, text_first_row, text_rows)` | Use graphics with one full width text region. Returns `1` on success or `0` when unsupported. |
 | `DISPLAY_HAS_MODE(mode)`                         | `1` if the target supports the mode.          |
 | `DISPLAY_MODE_COLOR_COUNT(mode)`                 | Number of color values the mode can draw, or `0` when it cannot draw graphics. |
 | `GFX_CAN_PLOT(mode)`                             | `1` if calls such as `PLOT` and `LINE` work in the mode. |
 | `GFX_CAN_POINT(mode)`                            | `1` if `POINT` readback is supported in the mode. |
 | `GFX_PAGE_COUNT()`                               | Number of selectable display pages. Usually `1`. |
-| `GFX_PAGE_SELECT(page)`                          | Select a display page. Returns `1` on success. |
+| `GFX_PAGE_SELECT(page)`                          | Select the visible page without changing the drawing page. Returns `1` on success. |
+| `GFX_PAGE_DRAW(page)`                            | Select the drawing page without changing the visible page. Returns `1` on success. |
 | `GFX_PAGE_BASE(page)`                            | Primary memory base for a display page, or `0` when unavailable. |
 | `GFX_PAGE_ATTR_BASE(page)`                       | Attribute memory base for a display page, or `0` when unavailable. |
+
+### Display visibility
+
+`DISPLAY_HIDE` hides the whole display, including sprites and layers.
+Drawing, printing, and loading can continue while it is hidden. `DISPLAY`,
+`DISPLAY_MIXED`, `CLS`, and `IMAGE_LOAD` keep it hidden until `DISPLAY_SHOW`.
+Showing the display preserves its mode, colors, and individual layer and
+sprite visibility settings. Calls may wait for a safe point between frames.
+Repeated calls do not nest.
+
+Use this to reveal a completed picture:
+
+```basic
+DISPLAY_HIDE
+OK = IMAGE_LOAD(ADDR TITLE_IMAGE)
+DISPLAY_SHOW
+```
+
+Hiding blanks the display; it does not keep the previous picture visible.
+The blank color depends on the target, and a border may remain visible.
+`DISPLAY_VISIBILITY_SUPPORTED` is `TRUE` when these calls are supported.
+Otherwise both calls do nothing. Use `@REQUIRES DISPLAY_VISIBILITY_SUPPORTED`
+when hiding is required.
 
 ### Mixed mode
 
@@ -125,7 +165,7 @@ code.
 
 | Name                                      | What it means                                                |
 | ----------------------------------------- | ------------------------------------------------------------ |
-| `DISPLAY_MODE`                            | Last mode set by `DISPLAY`.                                  |
+| `DISPLAY_MODE`                            | Active display mode, including the startup mode.             |
 | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT`        | Size of the current display. Pixels in a bitmap mode, columns and rows in a cell mode. |
 | `GFX_ROW_BYTES()`                         | Bytes used by one row of bitmap data, or `0` when unavailable. |
 | `GFX_BYTE_W` / `GFX_BYTE_H`               | Pixels per bitmap byte, or `0` outside bitmap modes.         |
@@ -137,8 +177,8 @@ code.
 `GFX_COLOR_ATTR_W` and `GFX_COLOR_ATTR_H` tell you whether a color
 belongs to one pixel or a larger block.
 
-Two prefixes run through this API. `DISPLAY_` is which mode you are in
-and how big it is, and answers in a cell mode as well a bitmap one.
+Two prefixes run through this API. `DISPLAY_` covers the mode, size, and
+visibility of the display, in cell modes as well as bitmap modes.
 `GFX_` is drawing pixels, so those values read `0` or mean nothing outside
 a bitmap mode.
 
@@ -150,6 +190,7 @@ a bitmap mode.
 | `COLOR_RGB(r, g, b)`          | Set the active text or graphics color from `0` through `255` red, green, and blue values when supported. |
 | `RGB(r, g, b)`                | Make a portable `$00RRGGBB` color value using channels from 0 to 255. |
 | `BACKGROUND_COLOR(color)`     | Set the target's main background color when supported. |
+| `BACKGROUND_COLOR(index, color)` | Set a shared background color slot when supported; slot `0` is the main background. |
 | `BORDER_COLOR(color)`         | Set the display border color when supported.  |
 | `PALETTE_SET(index, color)`   | Change how pixels of value `index` look using a standard color or `RGB` value. |
 | `PALETTE_RESET()`             | Restore the palette a graphics mode starts with. |
@@ -178,10 +219,14 @@ including the portable color constants such as `BLACK`, `WHITE`, and
 `BLUE`. Both calls are available on every target. An unsupported call
 does nothing and produces a compile warning.
 
+The indexed form selects a shared background slot. Available slots depend
+on the target and display mode.
+
 | Support value | Meaning |
 | --- | --- |
-| `BACKGROUND_COLOR_SUPPORTED` | `TRUE` when `BACKGROUND_COLOR` changes the display. |
+| `BACKGROUND_COLOR_SUPPORTED` | `TRUE` when `BACKGROUND_COLOR(color)` changes the main background. |
 | `BORDER_COLOR_SUPPORTED` | `TRUE` when `BORDER_COLOR` changes the display border. |
+| `GFX_COLOR_RGB_SUPPORTED` | `TRUE` when `COLOR_RGB` sets the foreground used by graphics drawing. |
 
 Use these support values with `@IF` or `@REQUIRES` when the color change
 is required.
@@ -322,8 +367,10 @@ Check `GFX_BUFFERING` before calling `GFX_SWAP`.
 `GFX_SWAP` and the `GFX_PAGE_` calls are separate things, and a target
 can have either one without the other. `GFX_SWAP` handles its own second
 buffer, so you never see or name it. The `GFX_PAGE_` calls hand you pages
-to select and write yourself. A target that flips inside `GFX_SWAP` still
-reports one page, because there is only one you can reach.
+to select and write yourself. Pages are numbered from `0` to
+`GFX_PAGE_COUNT() - 1`. Use `GFX_PAGE_DRAW` before drawing and
+`GFX_PAGE_SELECT` to show the finished page. Targets with only an automatic
+back buffer report one page.
 
 ## Layer
 
@@ -428,11 +475,17 @@ calling `SCROLL_PRESENT`. The outer coordinates are column `0`, column
 program's scroll position from that result rather than the earlier fill
 request.
 
+`@OPTION SCROLL_DOUBLE_BUFFER TRUE` selects a second screen buffer on
+targets that offer a choice. `FALSE` selects scrolling in place. Each target
+sets its default and which scrolling modes use the option. An explicit
+setting overrides that default.
+
 | Name | What it does |
 | --- | --- |
 | `SCROLL_BEGIN(step_x, step_y)` | Start cell scrolling. Use `8, 8` for normal 8 pixel cells. A zero step disables that axis. |
 | `SCROLL_BEGIN_REGION(x, y, columns, rows, step_x, step_y)` | Start scrolling inside a cell region while leaving cells outside it fixed. |
 | `SCROLL_CELL_PUTC(col, row, code)` | Write one character code in the scrolling area. |
+| `SCROLL_CELL_COLUMN(col, src, stride)` | Fill one column of the scrolling area from memory, one byte per row `stride` bytes apart. |
 | `SCROLL_MOVE(dx, dy)` | Prepare relative movement and return a `SCROLL_FILL_*` edge when new cells are needed. |
 | `SCROLL_PRESENT()` | Show the prepared movement and return a `SCROLL_EDGE_*` boundary that is now visible. |
 | `SCROLL_BUFFER_COLUMNS` / `SCROLL_BUFFER_ROWS` | Size of the cell area available for scrolling content. |
@@ -456,9 +509,7 @@ request.
 
 Movement size may change after `DISPLAY`, so read the granularity values
 after choosing a mode. The target pages list the available screen types,
-axes, colors, and regions. The
-[portable scroll example](../examples/__portable__/scroll.cbs) checks
-the available axes.
+axes, colors, and regions.
 
 ## Misc
 
@@ -615,9 +666,9 @@ time. If timed sound is active, call `SOUND_TIMED_UNINSTALL` before
 
 The one-path form embeds prepared audio as `TITLE_AUDIO`. Load it with
 `AUDIO_LOAD(ADDR TITLE_AUDIO)`. The two-path form does not embed the audio.
-It creates `BOSS_AUDIO_FILE`, stages that file with the program, and creates
-`BOSS_LOAD`. Call `BOSS_LOAD` to load it from storage. crustyBASIC adjusts
-the staged filename to suit the selected medium.
+It creates `BOSS_AUDIO_FILE` and stages that file with the program. Load it
+from storage with `AUDIO_LOAD(BOSS_AUDIO_FILE)`. crustyBASIC adjusts the
+staged filename to suit the selected medium.
 
 The source can be an audio file such as WAV or SID. crustyBASIC
 recognizes it by its contents, converts it to CBA, and makes sure the
@@ -723,42 +774,50 @@ On targets without frame timing, `FRAME_WAIT` only increments
 program depends on real frame timing. `FRAME_WAIT` does not swap
 graphics buffers.
 
-Use `@PERIODIC` for cooperative animation and other short frame work:
+Use `@PERIODIC` for short recurring work:
 
 ```basic
 @PERIODIC
-PROC UPDATE_EVERY_FRAME
+PROC UPDATE_SCREEN
 ENDPROC
 
-@PERIODIC FRAMES 5
-PROC UPDATE_EVERY_FIFTH_FRAME
+@PERIODIC 100
+PROC UPDATE_STATUS
 ENDPROC
 
-@PERIODIC MS 1000
-PROC UPDATE_EVERY_SECOND
+@PERIODIC IRQ
+PROC UPDATE_ANIMATION
+ENDPROC
+
+@PERIODIC IRQ 100
+PROC UPDATE_WALK_FRAME
 ENDPROC
 ```
 
-A periodic PROC has no parameters or return value. Bare `@PERIODIC` runs
-after every completed `FRAME_WAIT`; `FRAMES N` first runs on wait N and
-then every N waits. Periodic PROCs run in declaration order and in normal
-program context. `N` is an integer literal from
-1 through 65535. Periodic PROCs are available wherever `FRAME_WAIT` is
-available.
+The optional number is the minimum interval in milliseconds between runs,
+an integer literal from 1 through 65535. Without a number, the PROC runs at
+every opportunity:
 
-`MS N` keeps time with `TICKS` instead of counting waits. The interval is
-converted to ticks when the program is compiled, using `TICKS_HZ` for the
-target and region being built, so the same source keeps the same pace on
-a PAL or NTSC build. The PROC runs on the first `FRAME_WAIT` after a full
-interval has passed since its previous run, and the first run waits a
-full interval from program start. An interval shorter than one tick is a
-compile error. On targets where `TICKS` only advances during `FRAME_WAIT`,
-`MS` measures waits at the nominal rate like `FRAMES` does. Nothing is
-added to `FRAME_WAIT` unless a program declares an `MS` PROC.
+| Annotation | Opportunity |
+| --- | --- |
+| `@PERIODIC` | Each completed `FRAME_WAIT` |
+| `@PERIODIC IRQ` | Each display refresh interrupt |
 
-`@PERIODIC` does not use or replace the single target callback managed by
-`FRAME_INSTALL`. Raster line callbacks are separate because they
-can run several times during one displayed frame.
+Both forms run at the first opportunity after the interval has elapsed
+since the previous run. The first run waits a full interval after program
+timing starts. Missed intervals do not cause extra runs to catch up.
+Intervals round up to the clock's tick resolution. `TICKS_RESET` does not
+change the schedule. On targets whose clock advances with `FRAME_WAIT`,
+elapsed time follows those waits.
+
+A periodic PROC has no parameters or return value. PROCs in the same
+context run in declaration order. IRQ callbacks continue while the main
+program is busy; operations that mask interrupts can delay them. Keep IRQ
+callbacks short and avoid waiting, file access, and other blocking calls.
+The target page describes its interrupt timing.
+
+Periodic services are separate from the callback managed by
+`FRAME_INSTALL` and from raster line callbacks.
 
 `FRAME_COUNTER` can change while a program reads it on targets where it
 advances without `FRAME_WAIT`. Use `TICKS` when the count must not change
@@ -801,8 +860,33 @@ Some targets can run callbacks at selected display rows.
   `0` each frame.
 
 The callback PROCs must take no arguments. Pass them as `ADDR(name)`.
-Supported rows and timing vary by target; its page contains the details
-and examples.
+Supported rows and timing vary by target; its page contains the details.
+
+## Media
+
+`MEDIA` tells a program what it shipped on. The compiler sets it from
+the build output, so a disk image build sees `MEDIA_DISK` and a
+cartridge build sees `MEDIA_CART`. Test it with `IF` while the program
+runs or with `@IF` at compile time. Both cost nothing, because the value
+is a constant.
+
+| Value         | Build                                         |
+| ------------- | --------------------------------------------- |
+| `MEDIA_NONE`  | A plain program file with no particular home. |
+| `MEDIA_DISK`  | A disk image.                                 |
+| `MEDIA_TAPE`  | A tape image.                                 |
+| `MEDIA_CART`  | A cartridge image.                            |
+| `MEDIA_HOST`  | A program for the host operating system.      |
+| `MEDIA_CARD`  | An SD card, memory stick, or memory card.     |
+| `MEDIA_CDROM` | A CD image.                                   |
+
+`FILE_MEDIA` tells the file API where a path with no device goes. It
+follows `MEDIA` when that medium holds files and otherwise uses the
+target's normal storage, so a cartridge build on a disk based machine
+reads its files from disk. Set `@OPTION FILE_MEDIA tape` or
+`--set file-media=disk` to pick another medium the target supports; an
+unsupported medium is a compile error. `@FILE_PATH` and the names of
+staged runtime files follow `FILE_MEDIA`.
 
 ## Files
 
@@ -826,7 +910,17 @@ specific arguments.
 | `FILE_MODE_DIR`         | `U8` | Open a directory style listing when supported. |
 | `FILE_OK`               | `U8` | No error.                                      |
 | `FILE_EOF`              | `U8` | End of file.                                   |
+| `FILE_NOT_FOUND`        | `U8` | File or path not found.                        |
+| `FILE_ERROR`            | `U8` | Read, write, or device error.                  |
+| `FILE_TOO_MANY_OPEN`    | `U8` | Too many files open.                           |
+| `FILE_ACCESS_DENIED`    | `U8` | Access denied.                                 |
+| `FILE_DISK_FULL`        | `U8` | Disk full.                                     |
 | `FILE_UNSUPPORTED`      | `U8` | Operation is not supported.                    |
+| `FILE_LINE_END_FIRST`   | `U8` | First byte of the target line ending.          |
+| `FILE_LINE_END_SECOND`  | `U8` | Second line ending byte, or `0` when none.     |
+| `FILE_CHANNEL_MIN`      | `U8` | Lowest usable channel number.                  |
+| `FILE_CHANNEL_MAX`      | `U8` | Highest usable channel number.                 |
+| `FILE_CHANNEL_COUNT`    | `U8` | How many files can be open at once.            |
 
 | Call                                        | What it does                                      |
 | ------------------------------------------- | ------------------------------------------------- |
@@ -836,6 +930,7 @@ specific arguments.
 | `FILE_READ_BYTE(channel)`                   | Read one byte and return `U8`.                    |
 | `FILE_WRITE_BYTE(channel, byte)`            | Write one byte.                                   |
 | `FILE_READ_LINE(channel, out line$)`        | Read one line of text into a string.               |
+| `FILE_IS_LINE_ENDING(byte)`                 | `TRUE` when a byte is part of the line ending.    |
 | `FILE_WRITE_STR(channel, text$)`            | Write a string without adding a newline.          |
 | `FILE_WRITE_LINE(channel, text$)`           | Write a string followed by the target line ending. |
 | `FILE_WRITE_DATA(channel, value)`           | Write one `RESTORE FILE` item to an open file.    |
@@ -847,6 +942,10 @@ specific arguments.
 | `TEXT_LOAD(path$, name$, out text$)`        | Load one named block from an external text asset. |
 | `FILE_STATUS(channel)`                      | Return the target status byte for the channel.    |
 | `FILE_COMMAND(cmd, channel, a1, a2, path$)` | Run a target specific file command.               |
+
+Some targets report the specific error constants above. Others report
+`FILE_UNSUPPORTED` or their own status codes for failures, so treat any
+status other than `FILE_OK` and `FILE_EOF` as an error.
 
 `FILE_LOAD_PROGRAM` loads a target's native program file into memory at
 runtime without running it. The one argument form uses load address
@@ -862,6 +961,14 @@ count. Keep the loaded data clear of your running program and its variables.
 `FILE_WRITE_STR` writes only the given text. `FILE_WRITE_LINE` writes
 the text and then the normal line ending for the selected target. Use
 `FILE_WRITE_LINE channel, ""` to write a blank line.
+
+The line ending is `FILE_LINE_END_FIRST`, followed by
+`FILE_LINE_END_SECOND` when that is not `0`. When reading a file byte by
+byte, `FILE_IS_LINE_ENDING` finds the line breaks without the program
+knowing which bytes the target uses.
+
+A directory listing returns one entry per line with the same line ending.
+An empty path lists the default drive where the target has one.
 
 `RESTORE FILE channel, path$, ADDR buffer, count` loads `count` bytes
 from `path$` into `buffer`. Later `READ` statements use that buffer
@@ -896,6 +1003,10 @@ later `READ` statements.
 you need to choose a device, secondary address, drive, or ROM mode.
 
 ## System
+
+`CAN_USE_UNDOCUMENTED_OPCODES AS U8` is `TRUE` when the selected system
+allows the compiler to use stable undocumented CPU instructions. It defaults
+to `FALSE`.
 
 | Support value | What it means |
 | --- | --- |
@@ -975,8 +1086,9 @@ See the `## Images` section in each image capable target page under
 
 Prepared images may use byte RLE on targets that support it.
 `@INCLUDE_IMAGE` and `cb-image` use it automatically only when it makes
-the stored image smaller. `IMAGE_LOAD` handles packed and unpacked images
-through the same calls.
+the stored image smaller. Some targets offer LZ packing instead through
+`@OPTION IMAGE_USE_LZ`; see the target page. `IMAGE_LOAD` handles packed
+and unpacked images through the same calls.
 
 The included image data has its own label:
 
@@ -986,21 +1098,47 @@ CONST TITLE_IMAGE(...) AS U8 = ...
 OK = IMAGE_LOAD(ADDR TITLE_IMAGE)
 ```
 
-Use `@INCLUDE_IMAGE` to convert and embed an image:
+Use `@INCLUDE_IMAGE` to convert an image:
 
 ```basic
 @INCLUDE_IMAGE TITLE "src/title.png"
-@INCLUDE_IMAGE TITLE "TITLE.IMG" "src/title.png"
+@INCLUDE_IMAGE TITLE "src/title.png" FILE
+@INCLUDE_IMAGE TITLE "src/title.png" FILE "INTRO.IMG"
 ```
 
-The first form creates `CONST TITLE_IMAGE(...) AS U8 = ...` and also
-`CONST TITLE_IMAGE_WIDTH AS U16` / `CONST TITLE_IMAGE_HEIGHT AS U16`.
-The second form does not embed the image. It creates `TITLE_IMAGE_FILE`,
-stages `TITLE.IMG` with the program, and creates `TITLE_LOAD`. Call
-`TITLE_LOAD` to load and display it from storage. The width, height, and
-format metadata remain available to the program. crustyBASIC adjusts the
+The first form embeds the image as `CONST TITLE_IMAGE(...) AS U8 = ...`
+and creates `CONST TITLE_IMAGE_WIDTH AS U16` / `CONST TITLE_IMAGE_HEIGHT AS U16`.
+
+`FILE` stores the converted image separately. Its filename comes from the
+source basename with the extension replaced by `.IMG`: `src/title.png`
+becomes `title.IMG`. Supply a filename after `FILE` to override it.
+This form creates `TITLE_IMAGE_FILE` and stages the image file with the
+program. Load and display it from storage with
+`IMAGE_LOAD(TITLE_IMAGE_FILE)`. The width, height, and format metadata
+remain available to the program. crustyBASIC adjusts the
 staged filename to suit the selected medium. If the source is already an
 IMG file, crustyBASIC checks it for the active target and uses it unchanged.
+
+`TITLE_IMAGE_FILE_LEN` gives the exact file size in bytes, including its
+header and any compression. Use it to size a memory buffer:
+
+```basic
+PICTURE_BUFFER(TITLE_IMAGE_FILE_LEN - 1) AS U8
+```
+
+`IMAGE_FILE_BUFFER_SIZE` is the size in bytes of the largest image file
+generated by all `@INCLUDE_IMAGE ... FILE` directives, including those in
+included source files. Use it for one shared buffer; it adjusts when the
+images change:
+
+```basic
+PICTURE_BUFFER(IMAGE_FILE_BUFFER_SIZE - 1) AS U8
+```
+
+`IMAGE_LOAD(path$)` loads directly into display memory; it does not
+allocate a separate image buffer. To keep the image in memory
+before displaying it, allocate a buffer large enough for the IMG file,
+read it with `FILE_LOAD`, then call `IMAGE_LOAD(ADDR buffer)` to display it.
 
 `IMAGE_LOAD(ADDR ...)` expects prepared IMG data rather than the
 original PNG or PCX. `@INCLUDE_IMAGE` performs that conversion. You can
@@ -1039,22 +1177,31 @@ An optional final `block_size` argument selects square blocks of 1, 2, 4,
 or 8 native pixels per side; the default is 1. Each batch visits 256 pixel
 positions at size 1, or 16 block positions at larger sizes.
 
-Most targets require an unpacked image in memory for wipes, slides, fade in,
+`IMAGE_SPLIT_OUT` slides two diagonal halves left and right, leaving black
+between them. Use `IMAGE_DIAGONAL_DOWN` for a split from the top left to the
+bottom right, or `IMAGE_DIAGONAL_UP` for the opposite diagonal. Movement
+uses native image cells; `delay` is the frame wait after each step.
+Some targets also set the shared background color to black.
+
+Most targets require an unpacked image in memory for wipes, slides, split out, fade in,
 and dissolve in. Add `UNPACKED` to `@INCLUDE_IMAGE`, or `--unpacked` to
 `cb-image`, to keep an image unpacked. Some targets also accept RLE8 images;
 see the target page. These calls return `0` for unsupported formats or packing. Fade out needs no image data and works on whatever the
 screen shows, including images loaded from a file. Dissolve out also needs
 no source image.
 
-The effects draw over the current screen contents. Clear the screen first
-when the image should appear over a blank screen.
+The effects draw over the current screen contents. Use `CLS` to clear the
+screen when the image should appear over a blank screen. `IMAGE_LOAD`
+selects the image's display mode, so a later `CLS` clears that display.
+Use `DISPLAY_HIDE` before loading and `DISPLAY_SHOW` afterward to reveal
+the completed image when `DISPLAY_VISIBILITY_SUPPORTED` is `TRUE`.
 
 ```basic
 @INCLUDE_IMAGE TITLE "src/title.png" UNPACKED
 
 OK = IMAGE_WIPE(ADDR TITLE_IMAGE, IMAGE_DOWN, 1)
 OK = IMAGE_FADE_OUT(3)
-IMAGE_CLEAR
+CLS
 OK = IMAGE_FADE_IN(ADDR TITLE_IMAGE, 3)
 ```
 
@@ -1063,12 +1210,12 @@ Calls:
 | Call | What it does |
 | --- | --- |
 | `IMAGE_LOAD(src_addr)` | Set the image's display mode and copy its data to the screen. Returns `1` on success. |
-| `IMAGE_CLEAR` | Clear the available graphics, tile, and cell screens. |
 | `IMAGE_WIDTH(src_addr)` / `IMAGE_HEIGHT(src_addr)` | Image width and height in pixels. |
 | `IMAGE_FORMAT(src_addr)` | The `IMAGE_FMT_*` id. |
 | `IMAGE_AUX(src_addr)` | Extra byte whose meaning depends on the image format. |
 | `IMAGE_LOAD(path$)` | Load an image file and display it directly when `IMAGE_FILE_SUPPORTED` is `TRUE`. Returns `1` on success. |
 | `IMAGE_WIPE(src_addr, direction, delay)` | Reveal the image band by band. Returns `1` on success. |
+| `IMAGE_SPLIT_OUT(src_addr, direction, delay)` | Slide diagonal halves apart to black. Returns `1` on success. |
 | `IMAGE_SLIDE(src_addr, direction, delay)` | Move the image in from the opposite edge. Returns `1` on success. |
 | `IMAGE_FADE_OUT(delay)` | Fade the screen to black. Returns `1` on success. |
 | `IMAGE_FADE_IN(src_addr, delay)` | Show the image black and brighten it to its colours. Returns `1` on success. |
@@ -1083,6 +1230,7 @@ Image support values:
 | `IMAGE_FILE_SUPPORTED` | `IMAGE_LOAD` can load image files from storage. |
 | `IMAGE_TARGET_FILE_SUPPORTED` | `IMAGE_LOAD` can load target image file formats directly. |
 | `IMAGE_WIPE_SUPPORTED` | `IMAGE_WIPE` is available. |
+| `IMAGE_SPLIT_SUPPORTED` | `IMAGE_SPLIT_OUT` is available. |
 | `IMAGE_SLIDE_SUPPORTED` | `IMAGE_SLIDE` is available. |
 | `IMAGE_FADE_SUPPORTED` | `IMAGE_FADE_OUT` and `IMAGE_FADE_IN` are available. |
 | `IMAGE_DISSOLVE_SUPPORTED` | `IMAGE_DISSOLVE_OUT` and `IMAGE_DISSOLVE_IN` are available. |
@@ -1103,7 +1251,8 @@ the target mode are an error, so scale them down first.
 `--as` chooses a format when more than one would fit. `--aux` sets an
 extra value for formats that define one on the target page. `--img`
 writes an `.img` file instead of a `.cbi` include. `--unpacked` keeps the
-image data unpacked so the image effects can use it.
+image data unpacked so the image effects can use it. `--lz` packs with LZ
+instead of RLE, for programs that set `IMAGE_USE_LZ`.
 
 ## Cell
 
@@ -1226,9 +1375,9 @@ characters:
 ```
 
 The one-path form embeds `UI_FONT_DATA`. The two-path form stages the packed
-glyph data and creates `LARGE_FONT_LOAD`, `LARGE_FONT_LOAD(dst)`, and
-`LARGE_FONT_ADDR`. Font dimensions, spacing, character mapping, and width
-metadata remain in the program in both forms.
+glyph data and creates the `LARGE_FONT_DATA` buffer for it. Font dimensions,
+spacing, character mapping, and width metadata remain in the program in both
+forms.
 
 ### Importing a charset
 
@@ -1243,8 +1392,8 @@ PROC MAIN
 	CHARSET_COPY_DEFAULT
 	CHARSET_INSTALL_RANGE U8(32), GAME_CHARS_COUNT, ADDR GAME_CHARS_DATA
 
-	IF OTHER_CHARS_LOAD THEN
-		CHARSET_INSTALL_RANGE U8(64), OTHER_CHARS_COUNT, OTHER_CHARS_ADDR
+	IF FILE_LOAD(OTHER_CHARS_FILE, ADDR OTHER_CHARS_DATA, OTHER_CHARS_FILE_LEN) = FILE_OK THEN
+		CHARSET_INSTALL_RANGE U8(64), OTHER_CHARS_COUNT, ADDR OTHER_CHARS_DATA
 	ENDIF
 ENDPROC
 ```
@@ -1266,17 +1415,14 @@ creates:
 | `GAME_CHARS_COLORS` | Foreground metadata prepared for each target glyph. |
 | `GAME_CHARS_PROPERTIES` | Imported property value for each glyph. |
 | `GAME_CHARS_PIXEL_WIDTHS` | Logical pixel width for each source glyph. |
-| `GAME_CHARS_BACKGROUND` / `GAME_CHARS_SHARED_COLOR_1` / `GAME_CHARS_SHARED_COLOR_2` | Source project colors. |
+| `GAME_CHARS_BACKGROUND` / `GAME_CHARS_SHARED_COLOR_1` through `GAME_CHARS_SHARED_COLOR_3` | Source project colors: the screen color and the three shared registers, which hold the multicolor shades or extended background colors 1 through 3. |
 | `GAME_CHARS_PALETTE` | Source palette as red, green, blue byte triples. |
 
-This generated form is independent of the source tool. Future importers can
-produce the same names and target packed data.
+This generated form is independent of the source tool.
 
-The two-path form stages the packed glyph bytes instead of embedding
-`LABEL_DATA`. It creates `LABEL_LOAD`, `LABEL_LOAD(dst)`, and `LABEL_ADDR`.
-The no-argument load uses an automatically allocated buffer. The address
-form loads into memory chosen by the program. `LABEL_ADDR` returns the
-address used by the most recent successful load. Glyph metadata remains in
+The two-path form stages the packed glyph bytes instead of embedding them.
+`LABEL_DATA` becomes a buffer the program loads with `FILE_LOAD`, or the
+program loads the file anywhere else it chooses. Glyph metadata remains in
 the program.
 
 ### Importing a charmap
@@ -1310,9 +1456,12 @@ The values are kept as `U16` so maps can refer to more than 256 characters. A
 target with an 8 bit character table can convert a value after placing its
 imported charset in that target's available range.
 
+An extended background mode project keeps each cell's background choice in
+bits 6 and 7 of its character number, the same way the hardware reads it, so
+the map can be copied to the screen as is.
+
 The two-path form stages the row major `U16` data and creates the same
-`LABEL_LOAD`, `LABEL_LOAD(dst)`, and `LABEL_ADDR` interface used by other
-memory backed imports.
+file constants and `LABEL_DATA` buffer as other memory backed imports.
 
 ### Importing a tileset and tilemap
 
@@ -1348,9 +1497,25 @@ exactly `width * height` indexes, and every index must be from 0 through 255.
 Line breaks and indentation do not define the rows; they are only for
 readability.
 
-A `.cbm` file contains only those three fields. It does not contain BASIC
-syntax such as `CONST`, `#`, or `AS U8`, and the directive does not use `AS`.
-The `.cbm` extension selects the format.
+An optional `attributes` list gives one byte per cell in the same order, for
+example a color or a background choice. Its meaning belongs to the program
+and the target; the importer only checks the count and passes the values
+through.
+
+`ATTRIBUTE_SHIFT n` folds each attribute into its cell instead. The tile ID
+must fit below bit `n`, the attribute is shifted up by `n` bits and combined
+with it, and no `*_ATTRIBUTES` array is generated. A map for an extended
+background text mode keeps a background choice per cell in bits 6 and 7 of
+the character number, so it imports with `ATTRIBUTE_SHIFT 6` and copies to the
+screen as it is:
+
+```basic
+@INCLUDE_TILEMAP HULL "assets/hull.cbm" USING SHAPES ATTRIBUTE_SHIFT 6
+```
+
+A `.cbm` file contains only those fields. It does not contain BASIC syntax
+such as `CONST`, `#`, or `AS U8`, and the directive does not use `AS`. The
+`.cbm` extension selects the format.
 
 The indexes in a `.cbm` file are local to the tileset named by `USING`.
 Index 0 selects its first tile, index 1 selects its second tile, and so on.
@@ -1411,6 +1576,7 @@ crustyBASIC creates:
 | `LEVEL_MAP_COUNT` | Number of map cells. |
 | `LEVEL_MAP_DATA_LAST` | Last index in `LEVEL_MAP_DATA`. |
 | `LEVEL_MAP_DATA` | Row major assigned tile IDs as `U8` values. |
+| `LEVEL_MAP_ATTRIBUTES` | Row major attribute bytes when the map has them. |
 
 The generated map can be passed directly to the tile API:
 
@@ -1427,9 +1593,9 @@ Maps imported with `USING`, or from the same editor project, use those IDs.
 file imports stay manual because their picture data is not in memory until
 the program loads it.
 
-The two-path forms stage the packed `U8` data and create
-`LABEL_LOAD`, `LABEL_LOAD(dst)`, and `LABEL_ADDR`. Dimensions and counts
-remain in the program.
+The two-path forms stage the packed `U8` data and create the file
+constants and `LABEL_DATA` buffer. Dimensions and counts remain in the
+program.
 
 ### Runtime support
 
@@ -1709,6 +1875,7 @@ Tile support and size values:
 | `TILE_CUSTOM_SHAPE_DYNAMIC_SUPPORTED` | `TILE_DEFINE` accepts mutable tile data. |
 | `TILE_BLOCK_SUPPORTED`         | `TRUE` when tile blocks can be defined and drawn.  |
 | `TILE_COLOR_AVAILABLE`         | `TRUE` when `TILE_COLOR` works in the current tile mode. |
+| `TILE_COLOR_ALTERS_SHAPE`       | `TRUE` when applying tile colors can remove pixels from the shape in the current display mode. Defaults to `FALSE`. |
 | `TILE_BACKEND`                 | Current `TILE_CELL`, `TILE_HARDWARE`, `TILE_BITMAP`, or `TILE_KERNEL` choice. |
 | `TILE_MAX_COUNT`               | Default number of available tile IDs.           |
 | `TILE_BASE_PIXEL_W` / `TILE_BASE_PIXEL_H` | Base tile unit size in pixels.                |
@@ -1725,11 +1892,76 @@ the TILE API. The target pages list those limits.
 it afterward with a normal `IF`. It cannot be used with `@IF` or
 `@REQUIRES`.
 
+`DISPLAY` sets `TILE_COLOR_ALTERS_SHAPE`. Check it afterward with a normal
+`IF`. When it is `TRUE`, use white on black to preserve fine tile details.
+
+## Desktop windows
+
+`WINDOW_SUPPORTED` is `TRUE` on targets with desktop windows. Window
+handles are `U32`; `WINDOW_OPEN` returns zero if the window cannot open.
+`WINDOW_LIMIT` is the maximum number of open application windows.
+
+| Call | What it does |
+| --- | --- |
+| `APP_INIT` | Prepare desktop input and return `1` on success. |
+| `APP_EXIT` | Close the application's windows and release desktop resources. |
+| `APP_POLL` / `APP_WAIT` | Return the next event; poll returns `APP_EVENT_NONE` when none is waiting, wait blocks while a window is open. |
+| `WINDOW_OPEN(title, x, y, w, h, flags)` | Open a window at screen position `x`, `y` with outer width `w` and height `h`. |
+| `WINDOW_CLOSE(handle)` | Close one window. |
+| `WINDOW_TITLE(handle, title)` | Change the window title. |
+| `WINDOW_POSITION(handle, x, y)` | Move the window to screen coordinates. |
+| `WINDOW_SIZE(handle, w, h)` | Change the outer window size. |
+| `WINDOW_FRONT(handle)` | Bring the window to the front. |
+| `WINDOW_WIDTH(handle)` / `WINDOW_HEIGHT(handle)` | Return the content width and height as `U16`. |
+| `WINDOW_SCREEN_HEIGHT(handle)` | Return the full screen height in pixels as `U16`. |
+| `WINDOW_SCREEN_TOP(handle)` | Return the screen Y coordinate below the desktop menu as `I16`. |
+| `WINDOW_MOUSE_X(handle)` / `WINDOW_MOUSE_Y(handle)` | Return signed pointer coordinates from the content's top left. |
+| `WINDOW_REDRAW_BEGIN(handle)` | Begin drawing the window. |
+| `WINDOW_REDRAW_NEXT(handle)` | Return `1` for each visible area to draw, then `0`. |
+| `WINDOW_REDRAW_END(handle)` | Finish drawing the window. |
+| `WINDOW_PEN(handle, pen)` | Select a drawing pen. |
+| `WINDOW_LINE(handle, x1, y1, x2, y2)` | Draw a line between two content positions. |
+| `WINDOW_FILL(handle, x1, y1, x2, y2)` | Fill the rectangle including both corners. |
+| `WINDOW_TEXT(handle, x, y, text)` | Draw text at the given baseline in content pixels. |
+
+Combine `WINDOW_CLOSE_BUTTON`, `WINDOW_DRAG`, `WINDOW_RESIZE` and
+`WINDOW_DEPTH` with bitwise `|` for the requested window controls.
+`WINDOW_DEFAULT` includes all four. Positions and drawing coordinates
+are `I16`, sizes are `U16`, and pens are `U8`. Pen colors follow the
+desktop's palette.
+
+Titles use up to 255 characters. Call `APP_EXIT` before leaving the
+application. Keep redraw passes separate and finish one before starting
+another. Use only drawing calls during a pass; handle input and change
+windows outside it. Position and size changes finish before returning,
+within the desktop's limits.
+
+`APP_POLL` and `APP_WAIT` return `APP_EVENT_REDRAW`, `APP_EVENT_CLOSE`,
+`APP_EVENT_KEY`, `APP_EVENT_MOUSE_DOWN`, `APP_EVENT_MOUSE_UP`,
+`APP_EVENT_MOUSE_MOVE`, `APP_EVENT_RESIZE`, `APP_EVENT_MOVE`,
+`APP_EVENT_FOCUS` or `APP_EVENT_BLUR`. The event's window is
+`APP_EVENT_WINDOW`. A close event is a request; call `WINDOW_CLOSE`
+when ready to close it.
+
+Mouse events provide signed content coordinates in `APP_EVENT_X` and
+`APP_EVENT_Y`, a button number in `APP_EVENT_BUTTON` (`0` left, `1`
+right, `2` middle), and the held button mask in `APP_EVENT_BUTTONS`.
+The mask uses bit 0 left, bit 1 right and bit 2 middle.
+`APP_EVENT_KEY_CODE` holds the key code. `APP_EVENT_MODIFIERS` combines
+`APP_MOD_SHIFT`, `APP_MOD_CTRL` and `APP_MOD_ALT`.
+
+On redraw and resize events, draw between `WINDOW_REDRAW_BEGIN` and
+`WINDOW_REDRAW_END`. Repeat the same drawing commands while
+`WINDOW_REDRAW_NEXT` returns `1`; the window clips each pass to its
+visible area. These calls also support drawing after changing your own
+content. Use the content size queries after a resize event.
+
 ## Input
 
 | Name / call              | What it does                                        |
 | ------------------------ | --------------------------------------------------- |
 | `INPUT(INOUT value)`     | Read one line and return `1` if it was assigned, or `0`. |
+| `INPUT(INOUT value, limit)` | Read one line of at most `limit` characters and return `1` if it was assigned, or `0`. |
 | `KEY()`                  | Wait for a typed key and return its `U8` code.        |
 | `INKEY()`                | Return a typed key as a string immediately, or `""`. |
 | `INKEY_CODE()`           | Return a typed key code immediately, or `0`.         |
@@ -1744,10 +1976,16 @@ it afterward with a normal `IF`. It cannot be used with `@IF` or
 | `ANALOG_JOYSTICK_SUPPORTED`    | `TRUE` for analog joysticks.                          |
 | `DIGITAL_JOYSTICK_SUPPORTED`   | `TRUE` for digital joysticks.                         |
 | `PADDLES_SUPPORTED`            | `TRUE` when `PADDLE(axis)` has supported axes.        |
+| `MOUSE_X()` / `MOUSE_Y()` | Current mouse position in pixels from the top left. |
+| `MOUSE_POSITION(x, y)` | Move the mouse pointer to pixel coordinates; `x`, `y` are `U16`. |
+| `MOUSE_STATE()` | Pressed button mask: bit 0 left, bit 1 right, bit 2 middle. |
+| `MOUSE_BUTTON(btn)` | `1` while button `btn` is down; `0` left, `1` right, `2` middle. |
+| `MOUSE_HIDE()`          | Hide the mouse pointer when the target displays one. |
+| `MOUSE_SHOW()`          | Show the mouse pointer when the target displays one. |
 | `MOUSE_SUPPORTED`              | `TRUE` when mouse input is available.                 |
 | `INPUT_ANY()`            | `1` when a key, keypad, joystick, or button is active. |
 | `INPUT_ANY(wait)`        | `INPUT_ANY()`, but blocks first when `wait` is `1`. |
-| `INPUT_JOY_ENABLE(port, enabled)` | Include or exclude a joystick port in `INPUT_ANY` and `INPUT_CLEAR`. |
+| `INPUT_JOY_ENABLE(port, enabled)` | Enable or disable a joystick port on targets requiring selection. |
 | `INPUT_CLEAR()`          | `1` when no key, keypad, joystick, or button is active. |
 | `INPUT_CLEAR(wait)`      | `INPUT_CLEAR()`, but blocks first when `wait` is `1`. |
 | `JOY(port)`              | Direction bits from a joystick port numbered from zero. |
@@ -1762,7 +2000,7 @@ Input constants:
 
 | Name                    | What it means                                       |
 | ----------------------- | --------------------------------------------------- |
-| `JOY_SELECTION_REQUIRED` | `TRUE` when joystick ports must be enabled explicitly for input prompts. |
+| `JOY_SELECTION_REQUIRED` | `TRUE` when joystick ports must be enabled explicitly before reading. |
 | `JOY_PORTS`             | Number of joystick ports for `JOY(port)`.           |
 | `JOY_DEFAULT_PORT`      | Default joystick port for gameplay input.           |
 | `JOY_BUTTONS`           | Buttons per joystick port for `JOY_BUTTON(port, button)`. |
@@ -1818,8 +2056,17 @@ Analog targets start with `JOY_DEADZONE_DEFAULT`; larger
 make the stick more sensitive, and digital targets accept the call
 without changing state.
 
-`MOUSE_BUTTONS` reports the button count, not the current button state.
-Mouse position and button state are target specific.
+`MOUSE_BUTTONS` reports the button count. Use `MOUSE_STATE` or
+`MOUSE_BUTTON(btn)` to read pressed buttons. `MOUSE_X` and `MOUSE_Y`
+return `U16`; button reads return `U8`. Each read gets the mouse state
+without a separate polling call.
+
+Mouse coordinates use screen pixels, or drawing surface pixels on some
+windowed targets. `MOUSE_POSITION` uses the same coordinates as the reads.
+For desktop windows, `WINDOW_MOUSE_X` and `WINDOW_MOUSE_Y` return signed
+content coordinates.
+On targets without a mouse, reads return zero and positioning does nothing.
+`MOUSE_HIDE` and `MOUSE_SHOW` control pointer visibility where provided.
 
 `KEY()`, `INKEY()`, and `INKEY_CODE()` return typed characters rather
 than keys that are currently held down.
@@ -1849,11 +2096,14 @@ INPUT_CLEAR 1
 INPUT_ANY 1
 ```
 
-`INPUT_JOY_ENABLE(port, enabled)` controls which joystick ports participate
-in `INPUT_ANY` and `INPUT_CLEAR`. Ports start disabled when
-`JOY_SELECTION_REQUIRED` is `TRUE`, otherwise they start enabled.
-Keyboard and keypad input remain available. Direct `JOY`, `JOY_BUTTON`,
-and `INPUT_JOY_KEYMAP` reads are unaffected.
+On targets where `JOY_SELECTION_REQUIRED` is `TRUE`, joystick ports start
+disabled. `INPUT_JOY_ENABLE(port, enabled)` changes their state at runtime.
+Disabled ports return zero from `JOY` and `JOY_BUTTON`, including reads
+through `INPUT_ANY`, `INPUT_CLEAR`, and `INPUT_JOY_KEYMAP`. Keyboard and
+keypad input remain available, including mapped keys.
+
+On other targets, `INPUT_JOY_ENABLE` does nothing and joystick reads proceed
+without an enable check.
 
 After the player selects a joystick interface:
 
@@ -1866,9 +2116,14 @@ INPUT_JOY_ENABLE PORT, FALSE
 `INPUT(value)` reads and echoes one line. The keyboard's Backspace or
 Delete key erases the previous character. The type of `value` tells it
 whether to read a number or a string. It returns `1` after storing a
-value. Invalid numeric text, numeric overflow, or text that does not fit
-returns `0` and leaves `value` unchanged. The call does not print an
-error or try again.
+value. Invalid numeric text or numeric overflow returns `0` and leaves
+`value` unchanged. The call does not print an error or try again.
+
+`INPUT(value, limit)` accepts at most `limit` characters and ignores
+keys typed past that until Backspace or Enter. Use it for initials,
+names, PINs, and other fixed width fields. Without a limit, a string
+accepts as many characters as it can hold and a number accepts a full
+line. A string never accepts more than it can hold.
 
 On a keypad, `INPUT` supports unsigned integer variables. Targets with
 `KEYPAD_STRING_INPUT_SUPPORTED` also support strings. Press the target's
@@ -1920,7 +2175,7 @@ target:
 PROC MAIN
 	HERO_APPLY_FRAME 0, U16(0), U8(0)
 
-	IF ENEMY_LOAD THEN
+	IF FILE_LOAD(ENEMY_FILE, ADDR ENEMY_DATA, ENEMY_FILE_LEN) = FILE_OK THEN
 		ENEMY_APPLY_FRAME 1, U16(0), U8(0)
 	ENDIF
 ENDPROC
@@ -2013,10 +2268,10 @@ The importer first converts source data into pixels, colors, flags, and
 animation ranges. Target packing is a separate step, so different source
 formats can produce the same generated interface.
 
-The two-path form stages the packed frame bytes instead of embedding
-`LABEL_DATA`. It creates `LABEL_LOAD`, `LABEL_LOAD(dst)`, and `LABEL_ADDR`.
-`LABEL_APPLY_FRAME` uses the address selected by the most recent load.
-Frame, color, mode, and animation metadata remain in the program.
+The two-path form stages the packed frame bytes instead of embedding them.
+`LABEL_DATA` becomes a buffer the program loads with `FILE_LOAD`, and
+`LABEL_APPLY_FRAME` reads the frames from it. Frame, color, mode, and
+animation metadata remain in the program.
 
 #### Support and limits
 
@@ -2029,6 +2284,7 @@ Frame, color, mode, and animation metadata remain in the program.
 | `SPRITE_MAX_COUNT`               | Number of available sprite IDs.      |
 | `SPRITE_WIDTH` / `SPRITE_HEIGHT` | Sprite size in the target's coordinate system. |
 | `SPRITE_DATA_BYTES`              | Number of bytes copied by `SPRITE_DATA`. |
+| `SPRITE_SHAPE_SLOTS`             | Frames the target keeps in sprite memory for `SPRITE_SHAPE_SELECT`, or zero. |
 | `SPRITE_COLORS_PER_SPRITE`       | Most visible, nontransparent color codes supported by one sprite. |
 | `SPRITE_X_MIN` / `SPRITE_X_MAX`  | Fully visible horizontal position range. |
 | `SPRITE_Y_MIN` / `SPRITE_Y_MAX`  | Fully visible vertical position range. |
@@ -2051,12 +2307,17 @@ sprite data and screen size.
 | `SPRITES_ON()`                     | Prepare sprites for use without clearing the active display. |
 | `SPRITES_RESET()`                  | Return all sprites to their starting settings. |
 | `SPRITES_RESTORE()`                | Restore saved backgrounds before drawing beneath sprites, keeping their settings for the next flush. Available on some targets. |
+| `SPRITE_RESTORE(id)`               | Restore one sprite's saved background without changing its settings. Available on some targets. |
+| `SPRITE_RESTORE(id, x, y, w, h)`    | Restore one sprite when its saved area overlaps this pixel rectangle. Available on some targets. |
+| `SPRITE_DRAW(id)`                  | Save the background and draw one visible sprite immediately. Restore its previous background first. Available on some targets. |
 | `SPRITE_CAN_SET_SHAPE(id)`       | `1` when the sprite ID accepts a custom shape through `SPRITE_DATA`. |
 | `SPRITE_COLOR_SHARED(id)`        | `1` when changing this sprite's color can affect another sprite. |
 | `SPRITE_NAME(id)`                | Target name for the sprite ID, or a generic name. |
 | `SPRITE_DATA(id, addr)`          | Install data in the target's sprite format. |
 | `SPRITE_DATA_8X8(id, addr)`      | Install an 8 byte, one color 8x8 shape. Each byte is one row, with its highest bit on the left. |
 | `SPRITE_DATA_TILES(id, w, h, addr)` | Install a `w` by `h` sprite made from tiles. Software sprite targets read 8 bytes per tile in row order. |
+| `SPRITE_SHAPE_INSTALL(slot, addr)` | Copy one frame into a shape slot, on targets with `SPRITE_SHAPE_SLOTS`. |
+| `SPRITE_SHAPE_SELECT(id, slot)`  | Show an installed shape slot on a sprite without copying its data. |
 | `SPRITE_INVERT_SUPPORTED`              | `TRUE` when `SPRITE_INVERT` is supported. |
 | `SPRITE_INVERT(id)`              | Invert the data loaded for the sprite. |
 | `SPRITE_ALIGN_X(x)` / `SPRITE_ALIGN_Y(y)` | Snap a coordinate to the target's sprite grid. |
@@ -2067,6 +2328,14 @@ sprite data and screen size.
 | `SPRITE_SHOW(id)` / `SPRITE_HIDE(id)` | Show / hide a sprite.          |
 | `SPRITES_OFF()`                  | Hide or disable all sprites.          |
 | `SPRITES_FLUSH()`                | Apply any waiting sprite changes.   |
+| `SPRITES_FLUSH(frames)`          | Where supported, prepare changes and wait until at least this many frames have elapsed since the previous update before displaying them. |
+
+Call `FRAME_WAIT` after `SPRITES_FLUSH` to pace each update and run frame
+services. Some targets wait for a safe screen update during the flush;
+the following `FRAME_WAIT` counts that wait without waiting again.
+
+The counted form handles frame waits itself. Use `SPRITES_FLUSH 2` for
+updates at least two frames apart; preparation time counts toward the interval.
 
 `SPRITE_DATA` copies bytes in the target's own sprite format without
 converting them. A different sprite mode may read those bytes
@@ -2148,26 +2417,23 @@ moving a sprite can restore an older copy of the background over your changes.
 frame, and ping pong reverses at both ends. `hold` is the number of ticks per
 frame.
 
-The [portable sprite showcase](../examples/__portable__/sprites.cbs)
-combines movement, multiple shapes, colors, flipping, expansion, priority,
-and all three animation modes. The
-[C64 asset include showcase](../examples/c64/crustybasic/include_assets.cbs)
-shows sprite, charset, charmap, tileset, and tilemap imports first from embedded
-data and then from media on separate screens. Its custom charmap prompt waits
-for Space before the program loads the assets from disk.
+#### Sprite count and double buffering
 
-#### Software sprite count
-
-Programs choose how many software sprite slots to allocate:
+Programs choose how many sprite slots to allocate on targets with a
+selectable count:
 
 ```basic
-@OPTION SOFT_SPRITE_COUNT 1
+@OPTION SPRITE_COUNT 1
 ```
 
-This setting sizes the sprite state and update loops. `SPRITE_MAX_COUNT`
-reports the selected count, with valid IDs from zero through one less than
-that count. A shifted sprite may use extra cell storage, but it still uses
-one sprite ID.
+This setting sizes the sprite state and update loops. Each target sets its
+own default and allowed range. `SPRITE_MAX_COUNT` reports the selected count,
+with valid IDs from zero through one less than that count. A shifted sprite
+may use extra cell storage, but it still uses one sprite ID.
+
+`@OPTION SPRITE_DOUBLE_BUFFER` selects sprite updates that are drawn off
+screen and shown whole, at the cost of extra memory and a frame of delay.
+Each target sets its own default; `FALSE` draws updates in place.
 
 ## Core builtins
 
@@ -2260,12 +2526,17 @@ pairs directly with `MEMMOVE`, `MEMFILL`, and `BIND`. The same holds for
 a string array element such as `ADDR(NAMES$(2))`. The address does not
 include the string length; use `LEN` to read it.
 
+For a `DYNAMIC STRING`, `ADDR` follows the pointer to its current character
+data. Changing the string can move that data, so obtain its address again
+after an assignment or append.
+
 `ADDR(FOO)` returns the starting address of a `PROC`. The `PROC` must
 take no parameters and cannot be in a switched bank.
 
 `ADDR` can take the address of `DIM` storage, typed `CONST` arrays, and
-no argument PROCs outside `@BANK`. It cannot take the address of a scalar
-`CONST` or a `PROC` parameter.
+no argument PROCs outside `@BANK`. For a string parameter, it returns the
+address of the characters visible inside the `PROC`. Use that address
+within the call; it need not be the caller's original buffer.
 
 ### PEEK, POKE, DPEEK, DPOKE
 
@@ -2327,19 +2598,60 @@ For memory backed resources, the two-path form creates:
 | ---- | ---------- |
 | `LABEL_FILE` | Runtime filename after adjustment for the selected medium. |
 | `LABEL_FILE_LEN` | Staged byte count. |
-| `LABEL_DATA` | Automatically allocated default buffer. |
-| `LABEL_LOAD` | Load into the default buffer and return `TRUE` on success. |
-| `LABEL_LOAD(dst)` | Load into memory chosen by the program. |
-| `LABEL_ADDR` | Address used by the most recent successful load. |
+| `LABEL_DATA` | Buffer sized for the file. It only takes memory when the program uses it. |
+
+Load the file with `FILE_LOAD`:
+
+```basic
+IF FILE_LOAD(MAP_FILE, ADDR MAP_DATA, MAP_FILE_LEN) = FILE_OK THEN
+```
 
 `@INCLUDE_FILE` uses `LABEL` for its buffer instead of `LABEL_DATA`.
 Image and audio loaders send data directly to their natural destination,
-so they create only `LABEL_LOAD` and their filename metadata. Text creates
-`LABEL_LOAD(name$, out text$)`.
+so those forms create only their filename metadata. Load them with
+`IMAGE_LOAD(LABEL_IMAGE_FILE)` or `AUDIO_LOAD(LABEL_AUDIO_FILE)`. Text
+creates `LABEL_FILE` for `TEXT_LOAD(LABEL_FILE, name$, text$)`.
 
-The load calls require file support. Gate code that uses an external form
-with `FILE_SUPPORTED` and any additional support value required by that
-asset type.
+Loading requires file support. Gate code that uses an external form with
+`FILE_SUPPORTED` and any additional support value required by that asset
+type.
+
+#### EXTMEM form
+
+When `EXTMEM_IMAGE_SUPPORTED` is `TRUE`, a trailing `EXTMEM` puts the
+converted asset in an EXTMEM image instead of the program or a runtime file:
+
+```basic
+@INCLUDE_FILE LEVELS "levels.bin" EXTMEM
+@INCLUDE_IMAGE TITLE "title.png" EXTMEM
+@INCLUDE_TEXT ROOMS "rooms.txt" EXTMEM
+```
+
+The build writes the image beside the program, with the same name and the
+extension the target page lists. `@OPTION EXTMEM_IMAGE_KB` sets its size;
+the target page lists the sizes. The form creates:
+
+| Name | What it is |
+| ---- | ---------- |
+| `LABEL_BANK` | EXTMEM bank of the asset. |
+| `LABEL_XADDR` | EXTMEM address of the asset. |
+| `LABEL_LEN` | Byte count. |
+
+Memory backed resources keep their `LABEL_DATA` buffer. Images and audio
+take the `LABEL_IMAGE_` and `LABEL_AUDIO_` prefixes of their other forms,
+such as `TITLE_IMAGE_BANK`. Text creates the three names for each block,
+such as `ROOMS_CELLAR_BANK`, and `ROOMS_COUNT`.
+
+Copy the data into RAM with `EXTMEM_FETCH` and the handle the target page
+names for the image, for example
+`EXTMEM_FETCH handle, LEVELS_LEN, ADDR LEVELS, LEVELS_XADDR, LEVELS_BANK`.
+Images and audio load from memory: fetch them into a buffer, then call
+`IMAGE_LOAD(ADDR buffer)` or `AUDIO_LOAD(ADDR buffer)`.
+`IMAGE_FILE_BUFFER_SIZE` counts EXTMEM images too. Fetch a text block into a
+string with the string form of `EXTMEM_FETCH`.
+
+No asset crosses an EXTMEM bank and each holds at most 65535 bytes, so one
+fetch always moves a whole asset.
 
 ### INCLUDE_FILE
 
@@ -2354,7 +2666,7 @@ conversion:
 
 The one-path form embeds a `CONST U8` array. It creates `LABEL_LEN`,
 `LABEL_LAST`, `LABEL_ADDR`, and `LABEL_END`. The two-path form stages the
-selected bytes and creates the runtime buffer and load calls described
+selected bytes and creates the file constants and runtime buffer described
 above.
 
 `OFFSET` and `COUNT` work with either form and accept decimal, `$` hex, and
@@ -2366,6 +2678,22 @@ the file contents or reserve memory that those contents may use at runtime.
 
 Use a typed directive when conversion or validation is wanted. For example,
 `@INCLUDE_AUDIO` converts audio and `@INCLUDE_IMAGE` converts images.
+
+### FILE_PATH
+
+`@FILE_PATH` names a file the program creates or reopens itself. It
+declares a string constant spelled the way the `FILE_MEDIA` storage
+expects, following the same name rules as a staged runtime file:
+
+```basic
+@FILE_PATH SCORES "SCORES.DAT"
+
+FILE_OPEN 1, SCORES, FILE_MODE_WRITE
+```
+
+Depending on the target, the value gains a device prefix, changes its
+extension separator, or is shortened to fit the directory. Targets
+without such rules keep the name as written.
 
 An included asset only reserves a separate memory range when its format
 declares where its bytes must live at runtime. Ordinary included arrays
@@ -2425,13 +2753,12 @@ Use the two-path form to keep the text outside the program binary:
 
 DESCRIPTION$ AS STRING * 255
 
-IF ROOMS_LOAD("CELLAR", DESCRIPTION$) THEN
+IF TEXT_LOAD(ROOMS_FILE, "CELLAR", DESCRIPTION$) THEN
 	PRINT DESCRIPTION$
 ENDIF
 ```
 
-This form creates `ROOMS_FILE` and
-`ROOMS_LOAD(name$, out text$)`. It validates the same named blocks and
+This form creates `ROOMS_FILE`. It validates the same named blocks and
 stages them in the selected target's text encoding, but does not generate
 one constant per block. Changing only the external text changes the staged
 file without changing the generated program source.
@@ -2449,10 +2776,12 @@ The full EXTMEM address is `HANDLE:BANK:XADDR`. `HANDLE` and `BANK` are
 | Name | What it does |
 | ---- | ------------ |
 | `EXTMEM_SUPPORTED` | `TRUE` when the target implements the portable extra-memory interface. |
+| `EXTMEM_IMAGE_SUPPORTED` | `TRUE` when the build can write an EXTMEM image for `EXTMEM` assets. |
 | `EXTMEM_DEFAULT` | Handle used by calls that omit one. |
 | `EXTMEM_AVAILABLE([handle])` | `1` when the selected provider is currently available. |
 | `EXTMEM_STASH([handle,] count, localaddr, xaddr, bank)` | Copy local RAM to extra memory. |
 | `EXTMEM_FETCH([handle,] count, localaddr, xaddr, bank)` | Copy extra memory to local RAM. |
+| `EXTMEM_FETCH([handle,] count, out text$, xaddr, bank)` | Copy up to 255 bytes into a string, cut to what the string holds. |
 | `EXTMEM_SWAP([handle,] count, localaddr, xaddr, bank)` | Exchange local and extra memory. |
 | `EXTMEM_FILL([handle,] count, xaddr, bank, value)` | Fill extra memory with one byte value. |
 | `EXTMEM_VERIFY([handle,] count, localaddr, xaddr, bank)` | Return `1` when the two ranges match. |

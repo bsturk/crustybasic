@@ -11,7 +11,7 @@ For command line target selection, see [`../USAGE.md`](../USAGE.md).
 `crustybasic build` uses NASM:
 
 ```bash
-crustybasic build examples/linux64/crustybasic/terminal_palette.cbs
+crustybasic build hello.cbs
 ```
 
 No Linux compiler or linker is needed. A suitable NASM build can produce
@@ -31,7 +31,7 @@ build and run without SDL2 when they do not use sound or audio.
 | Item | Value |
 | --- | --- |
 | CPU | x64 |
-| Text | Current terminal size, default 80x25 |
+| Text | 80x25 default, `TEXT_COLUMNS` follows the terminal width |
 | Code storage | RAM |
 | Address size | 64 bit |
 | String encoding | ASCII |
@@ -54,13 +54,14 @@ including over SSH. `KEY_HELD_SUPPORTED` is false.
 `COLOR_RGB` accepts red, green, and blue values from 0 through 255
 and selects the nearest fixed xterm-256 color cube or grayscale entry.
 
-`TEXT_WIDTH` and `TEXT_HEIGHT` use the current terminal size when stdout
-is a terminal. They default to 80x25 otherwise.
+`TEXT_WIDTH` and `TEXT_HEIGHT` are the 80x25 defaults. `TEXT_COLUMNS` gives
+the current terminal width when stdout is a terminal.
 
 ## Files
 
 The portable file API supports read, write, append, update, and directory
-modes. Directory mode returns one entry per line.
+modes on channels 0 to 15, and all 16 can be open at once. Directory mode returns one entry per line, and one
+directory listing can be open at a time.
 
 ## Networking
 
@@ -111,9 +112,3 @@ export SDL_AUDIODRIVER=dummy
 
 Bitmap graphics, images, sprites, and tiles are not provided. Terminal
 text and terminal colors are available.
-
-## Examples
-
-Linux examples live under:
-
-- [`../../examples/linux64/`](../../examples/linux64/)

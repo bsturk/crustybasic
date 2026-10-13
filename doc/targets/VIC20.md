@@ -17,6 +17,7 @@ notes. For command-line target selection and dialects, see
 | `vic20.8k` | `.prg` | 8K RAM expansion in BLK1 |
 | `vic20.16k` | `.prg` | 16K RAM expansion |
 | `vic20.24k` | `.prg` | 24K RAM expansion |
+| `vic20.32k` | `.prg` | 32K RAM expansion in BLK1, BLK2, BLK3, and BLK5 |
 
 All profiles use the VIC-20 KERNAL and BASIC V2 ROMs. `REAL` uses the BASIC
 ROM, and text output supports Commodore control codes.
@@ -40,14 +41,25 @@ installing a custom character set, or loading a native image format.
 `SCREEN_BASE` and `COLOR_BASE` follow the selected system. Programs should
 use these constants instead of fixed addresses.
 
+`vic20.32k` keeps code in `$1210-$7FFF` and places variables and the
+heap in the extra 8 KB at `$A000-$BFFF`. Screen and color addresses
+match `vic20.24k`. PRG and disk loading initialize the extra RAM
+automatically. The expansion must have BLK5 RAM enabled.
+
 If imported data requires a fixed memory range, relocate the program with
 `@OPTION START_CODE` and `@OPTION START_DATA`. `@OPTION START_PROGRAM` is
 only required when the BASIC launcher overlaps that range.
+
+A `PROC` can call itself, directly or through another `PROC`. Each
+nested call uses the CPU stack, so keep recursion shallow.
 
 Use `CHARSET_COPY_DEFAULT`, `CHARSET_INSTALL`, and `CHARSET_DEFINE` for custom
 characters. These helpers reserve `$1800` to `$1BFF` at compile time. Code,
 data, and the heap stay outside that area; expansion RAM above it remains
 available.
+
+A RAM character set holds 128 glyphs. Reverse video (`{RVS_ON}`, `INVERSE`)
+and the blinking cursor need the ROM set; `CHARSET_RESET` returns to it.
 
 ## Colors
 
@@ -133,8 +145,7 @@ The VIC-I has 16 colors. Background and auxiliary colors can use all
 | `15` | Light yellow | `LIGHT_YELLOW` |
 
 crustyBASIC uses portable color constants, so their names do not always
-match the VIC-20 names. `LIGHT_RED` selects pink, and `LIGHT_GRAY` maps to
-cyan.
+match the VIC-20 names. `LIGHT_RED` selects pink.
 
 In multicolor mode, every cell has its own foreground color. The background,
 border, and auxiliary colors are shared by the whole screen.
@@ -178,14 +189,19 @@ POKEB COLOR_BASE + 5 * TEXT_WIDTH + 10, 8 + RED
 
 Text, cells, and tiles use the same 22 by 23 character screen.
 
-Regular crustyBASIC source keeps the direct byte values for letters:
-`A-Z` uses `$41-$5A`, `a-z` uses `$61-$7A`, and a newline uses `$0D`. The
-glyph on screen still depends on whether the VIC-20 is showing its upper or
-lower character set.
+`TEXT_ENCODING` defaults to `UPPER_CASE`: `A-Z` maps to `$41-$5A`,
+`a-z` maps to `$61-$7A`, and a newline maps to `$0D`. This suits the
+uppercase and graphics character set used by BASIC at power on.
 
-The `cbm_basic_vic20` dialect follows VICE petcat listing conversion instead.
-In that dialect, `A-Z` uses `$C1-$DA`, `a-z` uses `$41-$5A`, and `~` uses
-`$FF`.
+For both letter cases, use `@OPTION TEXT_ENCODING MIXED_CASE` and
+`PRINT "{LOWER}";`. This encoding maps `A-Z` to `$C1-$DA` and `a-z`
+to `$41-$5A`. `UPPER` and `LOWER` string functions follow the encoding.
+
+Startup preserves the selected letter case. Printing `{LOWER}` selects
+mixed case; `{UPPER}` selects uppercase and graphics. These controls
+affect the whole screen. Returning to BASIC keeps that selection.
+
+The `cbm_basic_vic20` dialect also maps `~` to `$FF` for VICE petcat listings.
 
 Use `{$NN}` for an exact byte value. The following named escapes cover common
 screen controls:
@@ -262,7 +278,7 @@ Cell effects keep a 1012 byte screen buffer; incoming dissolves also keep
 effect buffer. Allow room for the source image and the displayed image too.
 For cell images on expansions of 8K or more, use `@OPTION START_CODE $2000`
 to leave room for the character set. Native paint formats need their own
-memory layout; see `examples/vic20/crustybasic/image_types.cbs`.
+memory layout.
 
 ## Software sprites
 
@@ -276,7 +292,13 @@ with custom characters and require an 8K or larger expansion.
 | Colors | One foreground color for each sprite |
 | Collision | Sprite to sprite and sprite to background checks |
 | Updates | Applied by `SPRITES_FLUSH` |
-| Sprite slots | Four by default, selected by `SOFT_SPRITE_COUNT` |
+| Sprite slots | Four by default, selected by `SPRITE_COUNT` |
+
+`SPRITES_FLUSH frames` prepares sprites, then waits for the requested
+interval before displaying them at the bottom border. Preparation time
+counts toward the interval. `SPRITES_FLUSH 2` gives updates two video
+frames apart when drawing keeps up: about 30 Hz on NTSC or 25 Hz on PAL.
+This form handles frame waits itself. `SPRITES_FLUSH 0` draws without waiting.
 
 ## Input
 
@@ -301,9 +323,8 @@ so trigger reads return released.
 `FRAME_WAIT` follows the video refresh: 60 Hz on NTSC, 50 Hz on PAL. It
 returns at the start of the bottom border, and `SPRITES_FLUSH` draws at
 that same point, so a loop that calls both spends one frame per pass.
-`TICKS` uses the KERNAL clock. The KERNAL programs the same timer value on
-NTSC and PAL, so that clock runs at about 55 Hz on NTSC and 60 Hz on PAL.
-`TICKS_HZ` reports 55 or 60 to match the current `REGION`.
+`TICKS` uses the KERNAL clock, which runs at 60 Hz on both NTSC and PAL.
+`TICKS_HZ` is 60.
 
 ## Sound
 
@@ -340,7 +361,3 @@ explicit `@OPTION RAM_TOP $xxxx`.
 
 Use `RAND(N)` for a portable bounded integer. Compatibility `RND` follows the
 dialect's Commodore behavior.
-
-## Examples
-
-VIC-20 examples live in [`../../examples/vic20/`](../../examples/vic20/).

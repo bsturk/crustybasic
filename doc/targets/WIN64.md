@@ -37,15 +37,18 @@ All current Windows x64 programs use a 256 byte string buffer limit.
 
 By default, `win64` builds a console subsystem executable. Text output
 uses the console, and input reads console events.
+`DISPLAY_MODE` starts as `CONSOLE`. `DISPLAY CONSOLE` returns output
+to that console after a cell or bitmap mode.
 
 When a console build also opens a GDI window, keyboard input follows the
 focused window.
 
-When a console executable is started by double clicking it, Windows
-closes the console window as soon as the program exits. Run it from
-`cmd.exe` or PowerShell to see final output, or keep the program alive
-with input, a wait, or a loop. GDI window builds behave the same way:
-the window closes when the program returns.
+Console programs print into the console they were started from, so
+their output stays in that window after they exit. When a console
+executable is started by double clicking it, Windows closes the console
+window as soon as the program exits; keep the program alive with input,
+a wait, or a loop if its output should stay visible. GDI window builds
+behave the same way: the window closes when the program returns.
 
 Add this source option for a GUI subsystem executable with no console
 window:
@@ -60,7 +63,10 @@ window:
 
 In UI window mode, `PRINT` text is drawn in the GDI window, `KEY` and
 `INKEY_CODE` read window character input, and closing the window exits
-the process on the next message pump or frame wait.
+the process on the next message pump or frame wait. In a bitmap mode,
+`PRINT` draws its text into the bitmap, so it appears with the next
+`GFX_SWAP` or `FRAME_WAIT`.
+These builds start in `CELL` and `DISPLAY_HAS_MODE(CONSOLE)` returns `0`.
 
 Console mode remains useful for text only programs and command line
 tools. GDI programs that should not show a console window should set
@@ -78,10 +84,17 @@ the program next checks keyboard input. Ordinary printing does not query the
 window size. Public dimensions cap at 255 cells because text coordinates are
 U8; clearing and cursor tracking still use the full Windows dimensions.
 
-UI window mode draws text into the GDI window using 8x16 cells. The
-text grid is still 80x25. `COLOR`, `CELL_COLORS`, and per-cell
-`CELL_COLOR` are available;
-cell attributes are not.
+With `--set optimize=speed`, console text is written a line at a time
+and runs of cell changes are written together. A partial line or
+pending cells appear at the next input, wait, `POSITION`, `COLOR`,
+`CELL_FLUSH`, or `FRAME_WAIT`.
+
+UI window mode draws text into the GDI window using 8x16 cells of a
+fixed pitch font. The text grid is a fixed 80x25, so `TEXT_MODE` returns
+`0` for other widths. The cell calls draw into the same grid: `PRINT`
+and `CLS` appear at once, while `CELL_FLUSH` (also `FRAME_WAIT` and
+`GFX_SWAP`) shows pending cell changes. `COLOR`, `CELL_COLORS`, and
+per-cell `CELL_COLOR` are available; cell attributes are not.
 
 | Capability | Value |
 | --- | --- |
@@ -100,6 +113,7 @@ The default graphics mode is `BITMAP_HIRES`.
 
 | Mode | Size | Colors | Notes |
 | --- | --- | --- | --- |
+| `CONSOLE` | Console window size | 16 | Host text output in console builds. |
 | `CELL`, `TEXT_80X25` | 80x25 cells | 16 | Text display. |
 | `BITMAP_HIRES`, `GDI_640X480` | 640x480 | 16 | Default bitmap mode. |
 | `GDI_1024X768` | 1024x768 | 16 | Larger GDI bitmap mode. |
@@ -169,7 +183,7 @@ bitmap buffer.
 
 | Feature | Value |
 | --- | --- |
-| Sprite count | Selected by `SOFT_SPRITE_COUNT`, default 16 |
+| Sprite count | Selected by `SPRITE_COUNT`, default 16 |
 | Size | Runtime `w * 8` by `h * 8` pixels |
 | Data bytes | 8 per tile |
 | X range | 0 through 632 |
@@ -183,6 +197,7 @@ This keeps old backgrounds from covering the new drawing.
 Call `SPRITES_FLUSH` before `GFX_SWAP` to draw staged sprites into the
 buffered bitmap. `FRAME_WAIT` does not flush or publish sprites.
 `SPRITE_DATA_TILES` stores tiles left to right and then top to bottom.
+`SPRITE_HIT_BG` counts any pixel under the sprite that is not black.
 
 ## Tile
 
@@ -203,15 +218,21 @@ tiles, scaled to 512x384 and centered in a 640x480 GDI window.
 
 ## Input
 
+`MOUSE_HIDE` and `MOUSE_SHOW` control the pointer over the graphics window.
+`MOUSE_X`, `MOUSE_Y`, and `MOUSE_POSITION X, Y` use drawing surface pixels,
+including the scale and offset of the displayed bitmap. Text windows use
+client pixels; console mode uses desktop pixels. `MOUSE_STATE` and
+`MOUSE_BUTTON(btn)` read the left, right, and middle buttons.
+
 | Capability | Value |
 | --- | --- |
 | Keyboard | Yes |
 | Individual held keys | Yes |
-| Joystick ports | 1 |
-| Buttons | 1 |
-| Stick type | Keyboard mapped digital directions |
+| Joystick ports | 2 |
+| Buttons | 4 |
+| Stick type | Windows (winmm) joystick, digital directions |
 | Paddle axes | 0 |
-| Mouse buttons | 1 |
+| Mouse buttons | 3 |
 | Keypad ports | 0 |
 | Keypad `INPUT` | No |
 
@@ -219,9 +240,11 @@ In console mode, keyboard input reads Win32 console input events. In UI
 window mode, keyboard input comes from the GDI window message loop.
 
 `KEY_HELD` asks Windows whether a key is down without consuming input.
+It reports keys only while the program's console or GDI window has the
+focus.
 
-The joystick API maps arrow keys and `W`, `A`, `S`, `D` to directions.
-The button maps to Space, Enter, or Ctrl.
+`JOY` and `JOY_BUTTON` read a Windows joystick. `INPUT_JOY_KEYMAP` adds
+keyboard keys of your choice as directions and a button.
 
 ## Sound
 
@@ -233,6 +256,8 @@ square wave output.
 
 Notes map MIDI note numbers 36..95 through a Hz table. Volume is on or
 off. `SOUND_PRESENT` reports whether Windows has a waveform output device.
+`BEEP` and `PLAY_NOTE_FOR` durations and `DELAY` counts are in
+milliseconds.
 
 ## Audio
 
@@ -256,22 +281,18 @@ is a canonical RIFF/WAVE image, so Windows consumes it directly. If the
 waveform device rejects the prepared format at runtime, `AUDIO_PLAY`
 returns `0` and the asset stays loaded and stopped.
 
-The build host cannot try the waveform device, so device format support
-is a runtime question; playback has not yet been verified audibly on
-Windows hardware.
-
 ## Timing
 
-`FRAME_WAIT` publishes pending graphics, uses `GetTickCount64` and `Sleep`
-to pace frames at about 60 Hz, and advances `FRAME_COUNTER`. `TICKS` uses
-the frame counter fallback.
+`FRAME_WAIT` publishes pending graphics, uses `QueryPerformanceCounter`
+and `Sleep` to pace frames at about 60 Hz, and advances `FRAME_COUNTER`.
+`TICKS` counts milliseconds and keeps running without `FRAME_WAIT`.
 
 | Capability | Value |
 | --- | --- |
 | `FRAME_SUPPORTED` | Yes |
 | `TIMER_SUPPORTED` | No |
-| `TICKS_HZ` | 60 |
-| `TICKS_FREE_RUNNING` | FALSE |
+| `TICKS_HZ` | 1000 |
+| `TICKS_FREE_RUNNING` | TRUE |
 
 ## System Commands
 
@@ -291,7 +312,8 @@ capacity.
 
 The file provider uses Win32 file handles. Read, write, append, update,
 and directory modes are supported. Directory mode uses a `FindFirstFileA`
-style listing. Paths are copied into a 260 byte native path buffer.
+style listing. Paths are copied into a 260 byte native path buffer. File
+channels run from 0 to 15.
 
 The net provider uses Winsock client sockets. TCP and UDP connects are
 available through the portable net API. Socket handles use channels 1
@@ -307,9 +329,3 @@ Console and UI text output failures and file open, close, read, and write
 failures enter the active handler. Unsupported file operations do the same.
 `ERR()` returns `FILE_UNSUPPORTED` (`255`) for these failures. End of file
 remains the normal `FILE_EOF` status and does not enter the handler.
-
-## Examples
-
-Windows x64 examples live under:
-
-- [`../../examples/win64/`](../../examples/win64/)

@@ -8,16 +8,43 @@ This page covers Plus/4 systems, modes, formats, and hardware notes.
 
 | System | CPU | Output | Text | Host ROM | Default assembler |
 | ------ | --- | ------ | ---- | -------- | ----------------- |
-| `plus4.orig` | 6502 | `.prg` | 40x25 | yes | `vasm` |
+| `plus4.orig` | 6502 | `.prg`, `.d64` | 40x25 | yes | `vasm` |
 
-crustyBASIC strings use direct ASCII letter values. `A-Z` maps to
-`$41-$5A`, `a-z` maps to `$61-$7A`, and a newline maps to `$0D`.
-The CBM BASIC dialect uses VICE petcat listing conversion instead:
-`A-Z` maps to `$C1-$DA`, `a-z` maps to `$41-$5A`, and `~` maps to
-`$FF`. Use `{$NN}` for an exact PETSCII byte. `REAL` uses the BASIC
-3.5 ROM floating point routines.
+`TEXT_ENCODING` defaults to `UPPER_CASE`: `A-Z` maps to `$41-$5A`,
+`a-z` maps to `$61-$7A`, and a newline maps to `$0D`.
+
+For both letter cases, use `@OPTION TEXT_ENCODING MIXED_CASE` and
+`PRINT "{LOWER}";`. This encoding maps `A-Z` to `$C1-$DA` and `a-z`
+to `$41-$5A`. `UPPER` and `LOWER` string functions follow the encoding.
+
+Startup preserves the selected letter case. Printing `{LOWER}` selects
+mixed case; `{UPPER}` selects uppercase and graphics. These controls
+affect the whole screen. Returning to BASIC keeps that selection.
+
+Use `{$NN}` for an exact PETSCII byte. The CBM BASIC dialect also maps
+`~` to `$FF` for VICE petcat listings. By default, `REAL` uses the BASIC 3.5 ROM
+floating point routines.
+
+## Program memory
+
+Normal builds use `$1010-$7FFF` for code and data.
+Select `@OPTION NOBASIC TRUE` or `--set nobasic=true` to extend this
+through `$FBFF`, adding 31 KB before runtime overhead. These builds use
+built-in math and keep KERNAL I/O and interrupts available. ROM is
+restored when the program ends. Screen and bitmap memory used by the
+program is reserved automatically.
+
+PRG and D64 disk output support both memory layouts. Select
+`@OPTION OUTPUT_TYPE disk` for a D64.
+
+A `PROC` can call itself, directly or through another `PROC`. Each
+nested call uses the CPU stack, so keep recursion shallow.
 
 ## Graphics
+
+`DISPLAY_HIDE` hides the display without clearing it. `DISPLAY_SHOW`
+reveals the current contents. `DISPLAY_VISIBILITY_SUPPORTED` is `TRUE`.
+The border stays visible, including while using mixed mode.
 
 The default graphics mode is `BITMAP_HIRES`.
 
@@ -35,7 +62,9 @@ Native TED mode constants are also available: `TED_TEXT`,
 record the native value in `DISPLAY_MODE`.
 
 Bitmap modes use the bitmap at `$4000`, luma attributes at `$0800`,
-and chroma attributes at `$0C00`.
+and chroma attributes at `$0C00`. `@OPTION BITMAP_BASE $8000` moves the
+bitmap to `$8000`, beneath the BASIC ROM, so program memory stays in one
+piece from `$1010` to `$7FFF`.
 
 `DISPLAY_MIXED mode, first_row, rows` puts full width text rows over a
 bitmap. The text rows use color memory at `$6000` and character memory at
@@ -58,10 +87,17 @@ when both axes are enabled.
 
 Scrolling uses the normal text screen and a second screen at `$6000-$67FF`,
 which is reserved automatically. Set the cell colors before `SCROLL_BEGIN`.
-Individual cell colors do not scroll. Bitmap scrolling and fixed regions
-are not supported.
+Individual cell colors remain fixed.
 
-See [`scroll.cbs`](../../examples/__portable__/scroll.cbs).
+`TED_SCROLL_REGION first_row, rows` applies horizontal fine scrolling to
+a band of the display, leaving the rows outside it fixed. Rows run from
+0 through 24. `TED_SCROLL_OFFSET offset` sets its pixel offset from 0
+through 7, initially 7. The band uses 38 columns; the surrounding rows
+use 40. These calls move the display window; the program supplies the
+screen contents.
+
+`RASTER_STOP` restores the previous interrupt and scroll settings.
+`RASTER_START` resumes the band, and `RASTER_UNINSTALL` removes it.
 
 ## Images
 
@@ -70,8 +106,10 @@ Native image display supports `IMAGE_FMT_TED_HIRES` and
 (10050 bytes, load address `$7800`). KERNAL-backed runtime image loading
 is available.
 
-Both formats support wipes, slides, and eight step fades. Effects use
-unpacked images in memory; fade out works on the displayed bitmap.
+Both formats support wipes, slides, eight step fades, and dissolves.
+Effects use unpacked images in memory; fade out and dissolve out work on
+the displayed bitmap. Dissolves use 1, 2, 4, or 8 pixel square blocks and
+preserve the image colors.
 
 ## Sprites
 
@@ -95,11 +133,11 @@ pixels or 4x8 multicolor pixels. Saved bitmap and cell color storage is
 allocated from the supplied dimensions.
 
 With page flipping enabled, `SPRITES_FLUSH` waits before showing the
-finished page. Use it once per game update without a separate `FRAME_WAIT`.
+finished page. Call `FRAME_WAIT` after each update; it counts that wait
+without waiting again.
 Sprite colors are refreshed when their covered cells or colors change.
 
-`SPRITES_ON` selects the matching bitmap mode. See
-[`multicolor_sprite.cbs`](../../examples/plus4/crustybasic/multicolor_sprite.cbs).
+`SPRITES_ON` selects the matching bitmap mode.
 
 ## Input
 
@@ -142,18 +180,12 @@ Both skip the two address bytes and load the remaining file through
 KERNAL LOAD. They return zero on success or the KERNAL error code,
 without running the loaded code.
 
-File channels default to disk device 8 and use the logical channel as
-the secondary address. Plus/4-specific opens can choose another device
-or secondary address.
+File channels run from 1 to 15. `FILE_OPEN` uses disk device 8, and the
+KERNAL allows up to 10 files open at once. Plus/4 specific opens can choose
+another device or secondary address.
 
 The lower KERNAL channel helpers are also callable by target-specific
 programs: `OPEN_CH`, `CLOSE_CH`, `GET_CH`, `PUT_CH`, `PRINT_CH_STR`,
 `ST`, and `CMD_CH`.
 
 `cbm_basic_v3_5` targets `plus4` by default.
-
-## Examples
-
-Plus/4 specific examples live under:
-
-- [`../../examples/plus4/`](../../examples/plus4/)

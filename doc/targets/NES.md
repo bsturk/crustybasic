@@ -20,11 +20,17 @@ hardware notes.
 | `REAL` | Not supported; use Q8.8 helpers for small fractional math |
 | String encoding | ASCII |
 | Keyboard | No |
+| Random | Seeded from the frame count at first use |
+| Recursive PROCs | Yes |
 
 The NES has no operating system. The cartridge provides all input,
 graphics, and sound support.
 
 ## Text And Graphics
+
+`DISPLAY_HIDE` hides the display without clearing it. `DISPLAY_SHOW`
+reveals the current contents. `DISPLAY_VISIBILITY_SUPPORTED` is `TRUE`.
+Background and sprite visibility settings are preserved.
 
 Text uses the PPU nametable as a 32x30 tile grid. `PRINT` and cell
 writes queue PPU updates that are drained by NMI. The built-in font and
@@ -39,6 +45,9 @@ column or row.
 `CELL_GETC` first checks a small cache of recent text and cell writes.
 On a miss, it waits for vblank and reads the nametable through the PPU.
 There is no full RAM nametable shadow.
+
+`CLS`, `CELL_CLS`, `CELL_MEMMOVE`, and `CELL_SCROLL` work on the nametable
+with rendering off, so the screen blanks until the next frame.
 
 Graphics support covers cell/text work. Bitmap-style plotting is not
 meaningful on the NES target today. Use tiles, charmap calls, and
@@ -139,6 +148,8 @@ and noise. Note helpers use NTSC or PAL timer tables selected by
 | `DMC_LOAD ADDR_IDX, LEN_IDX, RATE` | Set up DMC sample playback. |
 | `DMC_TRIGGER` | Start DMC playback. |
 
+`BEEP` plays a C5 tone on pulse 1; its duration counts frames.
+
 APU register namespaces are available as `APU.*` and `APU_IO.*`.
 
 ## Fixed Point
@@ -196,7 +207,10 @@ Select a banked mapper like this:
 ```
 
 By default NES mappers use CHR RAM. Load tile graphics into CHR RAM at
-runtime with tile, sprite, or `CHR_UPLOAD`.
+runtime with tile, sprite, or `CHR_UPLOAD`. `TILE_DEFINE` and
+`SPRITE_DATA_8X8` update their tile during the next frame without
+blanking the screen. Rendering is off while `CHR_UPLOAD` copies, so a
+large upload blanks the rest of that frame.
 
 To build a cart with CHR ROM, pass a CHR file:
 
@@ -220,8 +234,8 @@ Use `@BANK N` for switched-bank code and `DATA`. `MAIN` stays in the
 fixed bank. UxROM, MMC1, and MMC3 share the same `@BANK` behavior. Calls
 between switched banks route through the fixed bank automatically.
 With MMC3, `@BANK` uses the `$8000-$9FFF` 8K PRG window; the fixed
-reset/vector bank lives at `$E000-$FFFF`. MMC3 IRQ and CHR banking
-register selection helpers are not exposed yet.
+reset/vector bank lives at `$E000-$FFFF`. Banked cartridges pad the PRG
+ROM to a power of two bank count and keep the fixed bank last.
 
 Constant `POKE` statements into a banked mapper's cartridge PRG window
 are rejected because that address range is mapper space, not writable
@@ -229,16 +243,3 @@ RAM.
 
 See [`../USAGE.md#banked-builds`](../USAGE.md#banked-builds) for the
 full `@BANK` workflow.
-
-## Not Supported
-
-| Feature | Reason |
-| --- | --- |
-| `REAL` | No floating-point ROM. |
-| Keyboard input | The base target has only controllers. |
-| Bitmap plotting | Graphics are tile and sprite based. |
-| `ON ERROR` | Not available on this target. |
-
-## Examples
-
-See [`../../examples/nes/`](../../examples/nes/).

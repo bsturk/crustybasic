@@ -1,20 +1,24 @@
 # Usage
 
-Start with the [Quick Start](../README.md#quick-start) if you just want
+Start with the [Quick start](../README.md#quick-start) if you just want
 to compile and run a small program.
 
 ## Compile or build
 
+The listing filename must be the first argument after `crustybasic`,
+or immediately after a command, e.g. `build` or `compile` when you name the command.
+All options must come after the filename.
+
 By default, crustyBASIC builds a program you can run:
 
 ```bash
-crustybasic examples/c64/crustybasic/color_banner.cbs -o color_banner.prg
+crustybasic hello.cbs -o hello.prg
 ```
 
 You can use `build` explicitly to do the same thing:
 
 ```bash
-crustybasic build examples/c64/crustybasic/color_banner.cbs -o color_banner.prg
+crustybasic build hello.cbs -o hello.prg
 ```
 
 `compile` writes an assembly file and stops there. Use it when you want
@@ -22,11 +26,12 @@ to inspect the assembly written by crustyBASIC or run the assembler
 yourself.
 
 ```bash
-crustybasic compile examples/c64/crustybasic/color_banner.cbs -o color_banner.s
+crustybasic compile hello.cbs -o hello.s
 ```
 
 If you leave out `-o`, crustyBASIC chooses the output path and prints
-every path it writes. Examples go under `build/` by default.
+every path it writes. Output goes beside the source file by default.
+Use `-o` to choose a different path.
 
 ## Building examples
 
@@ -52,16 +57,16 @@ An example can say what it needs:
 
 If a requirement is false for the selected target, `build-examples`
 skips that example and prints a warning. Use `--keep-going-requires` to
-ignore `@REQUIRES` and try the build anyway. Add `-k or --keep-going` if one
+ignore `@REQUIRES` and try the build anyway. Add `-k` or `--keep-going` if one
 failed build should not stop the rest.
 
 ## Commands
 
 ```text
-crustybasic <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler path] [--cart-size N] [--size-report] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
-crustybasic build <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler path] [--cart-size N] [--size-report] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
-crustybasic compile <input.cbs> [-o output.s] [--include path] [--emit-ir] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
-crustybasic build-examples[:path-filter] [--examples-dir dir] [--output-dir dir] [--examples-asm-dir dir] [--assembler path] [--cart-size N] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--cart-include-variants] [--keep-going-requires] [--keep-going|-k] [--jobs N|-j N] [--set key=value]
+crustybasic <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler name|path] [--assembler-path path] [--cart-size N] [--size-report] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic build <input.cbs> [-o output.bin] [--include path] [--emit-asm output.s] [--assembler name|path] [--assembler-path path] [--cart-size N] [--size-report] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic compile <input.cbs> [-o output.s] [--include path] [--assembler name|path] [--emit-ir] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--set key=value]
+crustybasic build-examples[:path-filter] [--examples-dir dir] [--output-dir dir] [--examples-asm-dir dir] [--assembler name|path] [--assembler-path path] [--cart-size N] [--debug] [--timings] [--show-warnings] [--crustybasic-toml path] [--cart-include-variants] [--keep-going-requires] [--keep-going|-k] [--jobs N|-j N] [--set key=value]
 crustybasic detokenize <input> [-o output] [--from-tokenized=NAME] [--from-hex] [--set dialect=NAME]
 crustybasic targets
 crustybasic target-info [system|all]
@@ -80,10 +85,15 @@ the same thing as `crustybasic build <input.cbs>`.
 | `.cbs` | crustyBASIC source |
 | `.bas` | BASIC source, commonly used for compatibility listings |
 | `.cbi` | crustyBASIC include |
+| `.cba` | audio prepared for one target by `@INCLUDE_AUDIO` or `cb-audio` |
 | `.cbfont` | portable font resource with glyph mapping and spacing |
 | `.ctm` | CharPad project accepted by the charset, charmap, tileset, tilemap, and C64 or C128 image importers |
-| `.png` | Indexed image accepted by image, sprite, and declared tile importers |
+| `.img` | image prepared for one target by `@INCLUDE_IMAGE` or `cb-image` |
+| `.pcx` | indexed image accepted by the image importer |
+| `.png` | indexed image accepted by image, sprite, and declared tile importers |
+| `.sid` | C64 PSID tune accepted by `@INCLUDE_AUDIO` |
 | `.spd` | SpritePad project accepted by `@INCLUDE_SPRITE` |
+| `.wav` | audio accepted by `@INCLUDE_AUDIO` where the target supports it |
 
 ## Command line flags
 
@@ -100,7 +110,8 @@ the same thing as `crustybasic build <input.cbs>`.
 | `--timings` | Show how long compilation takes, split into its main steps. |
 | `--debug` | Set `DEBUG` to 1 and enable `@ASSERT`. Without it, `DEBUG` is 0 and `@ASSERT` is ignored. |
 | `--show-warnings` | Print crustyBASIC warnings. They are hidden by default. |
-| `--assembler path` | Use this assembler executable for the selected system. It must be compatible with that system. |
+| `--assembler name` | Select an assembler, such as `vasm`, `pasmo`, or `mads`. `target-info` lists the choices for a system. An executable path is also accepted. |
+| `--assembler-path path` | Set the executable path for the selected assembler. |
 | `--include path` | Include a `.cbi` file before the source. Repeat the flag for more files. Files are included from left to right. |
 | `--crustybasic-toml path` | Use a different `crustybasic.toml` tool config. |
 | `--from-tokenized=NAME` | Tell `detokenize` which tokenized BASIC format to read. |
@@ -110,9 +121,6 @@ the same thing as `crustybasic build <input.cbs>`.
 | `--examples-asm-dir dir` | Put assembly files from `build-examples` in this folder. |
 | `--cart-size N` | Set the exact size of a cartridge stored as one fixed area (`16k`, `32k`, `0x8000`, `$8000`, or decimal bytes). |
 | `--cart-include-variants` | For examples that do not choose a target, build every exact system variant instead of one system per target. |
-| `--out-dir dir` | Put regression output in this folder. |
-| `--bless` | Replace the expected messages for failing regression cases with their current messages. |
-| `--no-assemble` | Skip regression cases that need an assembler. |
 
 Run `crustybasic options` to see the `--set` keys. Run
 `crustybasic target-info <system>` to inspect one system, including its
@@ -130,8 +138,10 @@ These options can be set from the command line with `--set key=value`:
 | `rom` | Target specific ROM name | Choose which ROM services the program can use. |
 | `mapper` | Mapper name or `name(PROVIDER,bank)` | Choose a mapper using defaults or an explicit provider and physical bank. |
 | `output-type` | Target specific output name | Choose the runnable format to build. |
+| `file-media` | `disk`, `tape`, `host`, `card`, `cdrom` | Choose the storage the file API uses when a path names no device. |
 | `tile-backend` | `cell`, `hardware`, `bitmap`, `kernel` | Choose which kind of screen the TILE API uses. |
-| `optimize` | `default`, `speed`, `size` | Favor speed, size, or the default balance. |
+| `optimize` | `default`, `speed`, `size` | Favor speed, size, or the default balance. Source can test `OPTIMIZE_DEFAULT`, `OPTIMIZE_SPEED`, and `OPTIMIZE_SIZE`. |
+| `default-initialization` | `true`, `false` | Start PROC locals at zero or empty on each call. Default is `true`. |
 | `math-real` | `auto`, `target`, `builtin` | Choose automatically, use the target's `REAL` math, or use crustyBASIC's. |
 | `builtin-real` | `auto`, `q16_16`, `q24_8`, `binary64` | Choose how crustyBASIC stores `REAL` values. |
 | `math-integer` | `auto`, `target`, `builtin` | Choose automatically, use the target's integer math, or use crustyBASIC's. |
@@ -145,6 +155,7 @@ These options can be set from the command line with `--set key=value`:
 | `start-code` | Decimal or hex with `$` or `0x` | Set the address where program code starts. |
 | `start-data` | Decimal or hex with `$` or `0x` | Set the address where changeable data starts when code and data are kept separate. |
 | `nes-chr-rom` | File path | Include NES graphics data from a CHR ROM file. |
+| `nobasic` | `on`, `off`, `true`, `false`, `1`, `0` | Use the RAM under the BASIC ROM while the program runs, where the target supports it. |
 | `disk-image` | `on`, `off`, `true`, `false`, `1`, `0` | Create or skip a disk image when the system supports one. |
 | `asm-verbose` | `0`, `1`, `2` | Choose how much detail appears in assembly files written by crustyBASIC. |
 
@@ -186,14 +197,12 @@ with `--set`:
 
 | Key | Values | What it does |
 | --- | --- | --- |
-| `string-default-capacity` | `1` through `256` | Set the usable capacity of a plain `STRING` declaration. |
+| `string-default-capacity` | `1` through `65533` | Set the usable capacity of a plain `STRING` declaration. |
 | `string-bounds-checks` | `true` or `false` | Check whole string assignments and appends while the program runs. The default is `false`. |
 | `memory-fit-checks` | `true` or `false` | Treat a program that runs past the target memory map as an error. `false` builds it with warnings instead. The default is `true`. |
-| `startup` | Name listed on the target page | Choose how the program starts on the target. |
+| `startup` | Name shown by `crustybasic target-info` | Choose how the program starts on the target. The target normally picks this for you. |
 | `memory-regions` | One or more target region names | Let crustyBASIC use these named memory regions. |
 | `memory-actions` | One or more target action names | Request extra setup named by the target page. |
-
-Any setup required by a memory region is enabled with it.
 
 ## Memory regions
 
@@ -262,7 +271,7 @@ You can choose a target family or one exact system:
 - **System** means one exact machine setup in a family, such as
   `apple2.plus`, `c64.orig`, or `coco.3`.
 
-Run these commands to see the names currently supported:
+Run these commands to see the supported names:
 
 ```bash
 crustybasic options
@@ -277,7 +286,7 @@ including its processor, supported assemblers, runnable file extensions,
 and named chips that programs can use.
 
 `target-info` gives the details for one exact system: its default output,
-available memory, character codes, numbers available for custom
+startups, available memory, character codes, numbers available for custom
 characters, chips, and cartridge support. Pass `all`, or leave out the
 name, to show every system.
 
@@ -303,8 +312,8 @@ Or choose an exact system:
 ```
 
 ```bash
-crustybasic compile examples/__portable__/strings.cbs --set target=coco -o strings.s
-crustybasic compile examples/__portable__/strings.cbs --set system=coco.ecb -o strings.s
+crustybasic compile hello.cbs --set target=coco -o hello.s
+crustybasic compile hello.cbs --set system=coco.ecb -o hello.s
 crustybasic build-examples --set target=c64
 ```
 
@@ -475,13 +484,6 @@ optimize = "size"
 build-examples = false
 ```
 
-To limit a full example run, put `build-example-targets` in the
-`crustybasic.config.toml` at the top of that example folder:
-
-```toml
-build-example-targets = ["apple2", "c64", "coco"]
-```
-
 ```toml
 # game.config.toml for game.cbs
 target = "nes"
@@ -499,27 +501,31 @@ spelling preferences for the folder:
 @REWRITE INKEY$ = INKEY
 ```
 
+To limit a full example run, put `build-example-targets` in the
+`crustybasic.config.toml` at the top of that example folder:
+
+```toml
+build-example-targets = ["apple2", "c64", "coco"]
+```
+
 ## Assemblers
 
 `build` needs an assembler that understands the selected system's
-assembly syntax. Run `crustybasic targets` to see the assembler and
-executable name expected for each system.
+assembly syntax. Run `crustybasic target-info <system>` to see its assembler
+choices, or `crustybasic targets` to list them for every target.
 
 The table lists the preferred assembler for each target. Download only
 the ones needed by the targets you use.
 
 | Targets | Required executable | Download |
 | --- | --- | --- |
-| `apple2`, `atari2600`, `atari5200`, `atari7800`, `atari800`, `c128`, `c64`, `nes`, `plus4` `vic20` | `vasm6502_oldstyle` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasm6502_oldstyle_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
-| `mc10` | `vasm6800_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
-| `coco`, `dragon` | `vasm6809_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
-| `mac` | `vasmm68k_mot` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
-| `dos16`, `h120`, `linux64`, `pcjr`, `tandy1000`, `win64` | `nasm` | [NASM downloads](https://www.nasm.us/pub/nasm/releasebuilds/) |
-| `ps1` | `mipsel-none-elf-gcc` | [PSn00bSDK toolchain](https://github.com/Lameguy64/PSn00bSDK) |
-| `psp` | `psp-gcc` plus the PSPSDK packaging tools | [PSPDEV installation](https://pspdev.github.io/installation.html) |
-| `sorcerer` | `vasmz80_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `amiga` | `vasmm68k_mot` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasmm68k_mot_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `apple2`, `atari2600`, `atari5200`, `atari7800`, `atari800`, `c128`, `c64`, `nes`, `plus4`, `vic20` | `vasm6502_oldstyle` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasm6502_oldstyle_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `coco` | `vasm6809_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `dos16`, `linux64`, `pcjr`, `tandy1000`, `win64` | `nasm` | [NASM downloads](https://www.nasm.us/pub/nasm/releasebuilds/) |
+| `zx81`, `zxspectrum` | `vasmz80_oldstyle` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasmz80_oldstyle_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
 
-crustyBASIC looks for that executable in the paths set for the target. A
+crustyBASIC searches the bundled assembler folders, then `PATH`. A
 release bundle contains the matching
 `tools/assemblers/<assembler>/<platform>/` folder, but not the assembler
 itself. Put a compatible executable there, or give its path with
@@ -531,11 +537,12 @@ The platform folder names are:
 | Host | Folder |
 | --- | --- |
 | Windows 64 bit | `windows-x86_64` |
+| Windows 32 bit | `windows-x86` |
 | Linux x86-64 | `linux-x86_64` |
 | macOS Apple silicon | `macos-aarch64` |
 | macOS Intel | `macos-x86_64` |
 
-For example, using the Atari 7800, a user on Windows extracts
+For example, to build for the Atari 7800 on Windows, extract
 `vasm6502_oldstyle.exe` to:
 
 ```text
@@ -549,25 +556,40 @@ before using it:
 chmod +x /path/to/vasm6502_oldstyle
 ```
 
-To choose an different path for an assembler for one build, pass its path directly:
+Select an assembler by name:
 
 ```bash
-crustybasic build hello.cbs --assembler /path/to/vasm6502_oldstyle
+crustybasic build hello.cbs --set target=zxspectrum --assembler pasmo
+crustybasic build hello.cbs --set target=atari800 --assembler mads
+crustybasic compile hello.cbs --set target=zxspectrum --assembler pasmo -o hello.s
 ```
+
+[Pasmo](https://pasmo.speccy.org/) is available for the Z80 targets.
+[MADS](https://mads.atari8.info/) is available for `apple1`, `apple2`,
+`atari5200`, `atari7800`, `atari800`, `bbcmicro`, `c1p`, and `nes`.
+
+For an executable stored elsewhere, add its path:
+
+```bash
+crustybasic build hello.cbs --set target=atari800 --assembler mads --assembler-path /path/to/mads
+```
+
+`--set assembler=pasmo` also selects an assembler. In a program's
+`crustybasic.config.toml`, use `assembler = "pasmo"`.
 
 To keep the choice, create `crustybasic.toml` beside the crustyBASIC
 executable and set the assembler for that target. This is the tool
 config, not the `crustybasic.config.toml` used by individual programs:
 
 ```toml
-[targets.atari7800]
-assembler = "/path/to/vasm6502_oldstyle"
+[targets.atari800]
+assembler = "mads"
+assembler_path = "/path/to/mads"
 ```
 
-`--assembler` takes priority over the tool config. A relative path starts
-from the folder where you run `crustybasic`, so an absolute path is
-usually safer. When neither is set, crustyBASIC checks its install
-folder.
+`--assembler` and `--assembler-path` take priority over the tool config.
+Command line paths are relative to the working folder. When no executable
+path is set, crustyBASIC searches its bundled folders and `PATH`.
 
 Use `--crustybasic-toml path` to try a tool config without putting it
 beside the crustyBASIC executable.
@@ -586,7 +608,7 @@ Then build it:
 crustybasic hello.cbs
 ```
 
-This writes `hello.a78`.
+This writes `hello.a78` beside `hello.cbs`.
 
 ## Outputs and extra files
 
@@ -669,21 +691,21 @@ small value and adjust it by feel.
 
 | Path | What's in it |
 | --- | --- |
-| `examples/__portable__/` | Portable crustyBASIC programs. |
+| `examples/__MULTI_TARGET__/` | Portable crustyBASIC programs, one source for many targets. |
 | `examples/<target>/crustybasic/` | Target specific crustyBASIC programs. |
 | `examples/<target>/dialects/<dialect>/` | Compatibility dialect listings. |
 
-The config file in an example's folder normally chooses the right
+The `crustybasic.config.toml` in a program's folder normally chooses the
 target and dialect:
 
 ```bash
-crustybasic compile examples/apple2/dialects/applesoft_basic/calculator.bas -o calculator.s
+crustybasic compile hello.bas -o hello.s
 ```
 
 You can also choose everything on the command line:
 
 ```bash
-crustybasic compile examples/apple2/dialects/applesoft_basic/calculator.bas --set dialect=applesoft_basic --set system=apple2.plus -o calculator.s
+crustybasic compile hello.bas --set dialect=applesoft_basic --set system=apple2.plus -o hello.s
 ```
 
 For the language itself, see [LANGUAGE.md](LANGUAGE.md). For portable

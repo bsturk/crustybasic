@@ -5,6 +5,15 @@ Use `@OPTION TARGET zxspectrum` for the ZX Spectrum 48K target.
 Use `@OPTION DIALECT sinclair_basic` for line-numbered Sinclair BASIC
 source. The dialect selects the Spectrum target automatically.
 
+Single program `.tap` and `.tzx` files can be compiled directly. The
+Sinclair decoder reads the BASIC program and preserves its saved starting
+line. `detokenize` also keeps this setting in the extracted source.
+
+```bash
+crustybasic compile hello.tzx -o hello.s
+crustybasic detokenize hello.tap -o hello.bas
+```
+
 This page covers Spectrum features and Sinclair BASIC compatibility.
 Shared runtime calls are documented in the [API reference](../API.md).
 
@@ -108,12 +117,14 @@ fire is pressed and 0 otherwise.
 Use the port matching your attached interface or emulator setting. Port 0
 requires a Kempston interface; its readings are undefined without one.
 The Sinclair ports also respond to the listed keyboard keys.
+`JOY_DEFAULT_PORT` is 0, selecting Kempston.
 
-`JOY_SELECTION_REQUIRED` is `TRUE`, so `INPUT_ANY` starts with keyboard
-input only. After the player selects an interface, use
-`INPUT_JOY_ENABLE PORT, TRUE` to include it in `INPUT_ANY` and
-`INPUT_CLEAR`. Pass `FALSE` to exclude it again. This does not detect
-hardware or change direct `JOY` and `JOY_BUTTON` reads.
+`JOY_SELECTION_REQUIRED` is `TRUE`, so joystick ports start disabled.
+After the player selects an interface, use `INPUT_JOY_ENABLE PORT, TRUE`
+to enable its reads. Pass `FALSE` to disable it again. Disabled ports return
+zero from `JOY` and `JOY_BUTTON`, including reads through `INPUT_ANY`,
+`INPUT_CLEAR`, and `INPUT_JOY_KEYMAP`. Mapped keyboard keys remain active.
+Enabling a port does not detect or attach hardware.
 
 ## Graphics
 
@@ -163,7 +174,7 @@ cell's paper color.
 ## Sprites
 
 Software sprites draw on the bitmap and save the pixels and attributes
-underneath. There are eight slots by default; use `@OPTION SOFT_SPRITE_COUNT`
+underneath. There are eight slots by default; use `@OPTION SPRITE_COUNT`
 to change the count. `SPRITES_ON` resets the slots and selects bitmap mode.
 
 `SPRITE_DATA` and `SPRITE_DATA_8X8` take eight bytes, one per row,
@@ -182,6 +193,21 @@ It prepares sprites in a RAM buffer, waits for the next frame, then copies
 changed areas to the screen. Call `FRAME_WAIT` after each update; it counts
 that wait without waiting again. The buffer uses about 7 KB of RAM in
 addition to saved backgrounds.
+
+`SPRITES_FLUSH frames` prepares sprites, then waits until at least that
+many frames have elapsed since the previous update before displaying them.
+Use `SPRITES_FLUSH 2` for updates two frames apart when drawing keeps up.
+This form calls `FRAME_WAIT` as needed; no extra wait is needed afterward.
+`SPRITES_FLUSH 0` displays prepared changes without waiting.
+
+For manual drawing order, `SPRITE_RESTORE id` restores one sprite's
+background while keeping its settings. The form
+`SPRITE_RESTORE id, x, y, w, h` restores it only when its saved area
+overlaps that pixel rectangle. Saved areas span whole 8 pixel columns.
+Restore overlapping sprites in reverse drawing order before changing
+the background, then use `SPRITE_DRAW id` to save and draw each visible
+sprite in the desired order. These calls draw directly without waiting
+for a frame.
 
 `SPRITES_OFF` hides sprites and restores their backgrounds immediately;
 `SPRITES_RESET` also frees the saved backgrounds and resets the slots.
@@ -254,6 +280,9 @@ Check `FILE_STATUS` after opening and closing. It returns `FILE_OK`,
 The dialect uses 1-based arrays and string positions, dynamic strings,
 case-insensitive identifiers, preserved case in strings, and `REAL`
 as the default numeric type.
+
+Scalar strings grow in the available heap. The dialect starts code at
+`$6000`; `START_CODE` can select another address.
 
 Additional dialect forms include:
 

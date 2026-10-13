@@ -15,13 +15,27 @@ For command-line target selection and dialects, see
 | `apple2.plus` | Apple II Plus | Applesoft ROM, `REAL` supported. |
 | `apple2.int` | Original Apple II | Integer BASIC ROM. No `REAL`. |
 | `apple2.e` | Apple //e | Default. Adds lowercase and 80-column softswitches. |
-| `apple2.c` | Apple //c | Same as IIe today, plus one mouse button capability. |
+| `apple2.c` | Apple //c | IIe features plus mouse input. |
 
-Output is a DOS 3.3 `BRUN` binary (`.bin`). With
+`CAN_USE_UNDOCUMENTED_OPCODES` is `TRUE` for `apple2.plus` and
+`apple2.int`. The IIe and IIc profiles use the documented instruction set
+for compatibility with 65C02 processors.
+
+## Outputs
+
+The default `dos33` output is a DOS 3.3 `BRUN` binary (`.bin`). With
 `--set disk-image=true`, `build` also writes a bootable `.dsk` using
 the bundled DOS 3.3 image writer. Files staged by a two-path
 `@INCLUDE_*` form go on that disk, uppercased and cut to the 30
 characters a DOS 3.3 catalog holds.
+
+Select `--set output-type=nodos` or `@OPTION OUTPUT_TYPE nodos` to
+boot directly into the program without loading DOS. Code starts at
+`$0900`, and program RAM extends through `$BFFE`. Use
+`--set disk-image=true` to write the bootable `.dsk`.
+
+Choose `dos33` for file I/O and `APPLE_DOS_COMMAND`. The `nodos`
+output keeps ROM services, including Applesoft math where available.
 
 ## Basics
 
@@ -29,12 +43,13 @@ characters a DOS 3.3 catalog holds.
 | --- | --- |
 | CPU | 6502 |
 | Text | 40x24 |
-| Code start | `$0800` |
-| Program RAM top | `$9600` |
+| Code start | `$0800` for `dos33`, `$0900` for `nodos` |
+| Program RAM top | `$9AA6` for `dos33` (`$9600` with DOS file I/O), `$BFFF` for `nodos` |
 | Text screen | `$0400`, Apple interleaved rows |
 | String encoding | Uppercase ASCII on II/II Plus, ASCII on //e,//c |
 | Sound | Speaker click; optional six voice Mockingboard |
 | Input | Keyboard, 2 joystick ports, 4 paddle axes |
+| Recursive PROCs | Yes |
 
 Cursor positioning handles the Apple text screen layout. If you poke
 screen memory yourself, use the usual Apple II row addressing rules.
@@ -42,10 +57,11 @@ screen memory yourself, use the usual Apple II row addressing rules.
 `apple2.plus` and `apple2.int` fold text to uppercase. `apple2.e` and
 `apple2.c` keep mixed case.
 
-The runtime automatically uses `$0200-$02FF` and `$0300-$039F` for
-changeable data. `$03A0-$03CF` holds saved Applesoft zero-page state.
-Programs using their own assembly must not use these ranges or call the
-Monitor line editor, which uses page 2 as its input buffer.
+The runtime uses `$0300-$039F` for changeable data. The `nodos` output
+also uses `$0200-$02FF`, which DOS 3.3 needs for its command buffer.
+`$03A0-$03CF` holds saved Applesoft zero-page state. Programs using their
+own assembly must not use these ranges or call the Monitor line editor,
+which uses page 2 as its input buffer.
 
 Stock Apple II text glyphs are in character ROM and are not
 RAM-redefinable through runtime charset support.
@@ -54,26 +70,32 @@ RAM-redefinable through runtime charset support.
 
 Apple II graphics support text/cell mode, lo-res graphics, and hi-res
 graphics. Apple II has no hardware sprites; sprite calls use a software
-7x8 hi-res blitter. The sprite flush path page flips between the two
+8x8 hi-res blitter. The sprite flush path page flips between the two
 hi-res pages by default, so sprites update without tearing; draw the
 bitmap background after starting or resetting sprites so it lands on
 both pages.
 
-With page flipping enabled, `SPRITES_FLUSH` waits before showing the
-finished page. Use it once per game update without a separate `FRAME_WAIT`.
+With page flipping enabled, `SPRITES_FLUSH` waits for a safe page change
+on `apple2.e` and `apple2.c`. Call `FRAME_WAIT` after each update; it counts
+that wait without waiting again.
 Sprites whose position, color, and shape bytes match the hidden page are
 left alone. Changing raw shape bytes in place is supported.
 
-Speed builds use about 3.5 KB of lookup tables to draw sprite rows faster.
-With page flipping, speed builds also combine overlapping single tile moves
-when their colors match. Default and size builds use the smaller routines.
+Speed builds cache single tile sprites at their current horizontal alignment
+and combine overlapping moves when their colors match. Each configured sprite
+slot reserves a 24 byte cache and a 24 byte saved copy per screen page.
+Changing shape bytes or horizontal alignment refreshes the cache.
+Larger tiled sprites, default builds, and size builds use compact shift
+routines. Page flipping remains a separate choice.
 
 `SPRITE_DATA_8X8` accepts the portable MSB-left 8x8 format and converts
-it automatically. Raw `SPRITE_DATA` uses Apple II-native 7x8 rows: bit 0
-is the leftmost pixel, bit 6 is the rightmost, and bit 7 is ignored.
-`SPRITE_DATA_TILES` accepts any runtime tile width and height. Tiles are
-converted and drawn left to right, then top to bottom, with each tile
-covering 7x8 pixels.
+it automatically. Raw `SPRITE_DATA` uses Apple II native 8x8 rows: bit 0
+is the leftmost pixel and bit 7 is the rightmost. Rows copied from hi-res
+screen memory need their color bit cleared first, or it draws as a pixel.
+Each row spans two 7 pixel screen bytes, so a sprite touches two byte
+columns at every position. `SPRITE_DATA_TILES` accepts any runtime tile
+width and height. Tiles are converted and drawn left to right, then top
+to bottom, with each tile covering 8x8 pixels.
 
 Without page flipping, default and size builds update sprites immediately.
 Speed builds wait for `SPRITES_FLUSH` so matching single tile moves can erase
@@ -124,6 +146,10 @@ clears only the four visible text rows. Other modes and row layouts return `0`
 without changing the display. Passing `0` for the text row count selects the
 normal full screen mode.
 
+`DISPLAY` sets `TILE_COLOR_ALTERS_SHAPE` to `TRUE` in HGR modes, where
+colors use alternating pixels, and `FALSE` in other modes. White on black
+preserves the tile's full shape.
+
 Hi-res mixed mode uses page 1. Because that page occupies `$2000-$3FFF`,
 hi-res mixed display programs must fit below `$2000` or use
 `@OPTION START_CODE $6000` to load above both hi-res pages.
@@ -131,9 +157,6 @@ hi-res mixed display programs must fit below `$2000` or use
 `DHGR_MONO` uses individual 560 dot bits and is intended for a monochrome
 display. A composite color display interprets the same memory as double hires
 color.
-
-The double graphics modes do not yet support mixed text, native image
-display, software sprites, bitmap tile stamping, or page flipping.
 
 ### Cell XOR Movement
 
@@ -160,27 +183,49 @@ Native image display supports:
 | --- | --- |
 | `IMAGE_FMT_HGR` | HGR screen dumps, 8184/8188/8192 bytes, native row order, with or without a DOS binary header |
 | `IMAGE_FMT_LGR` | 1024-byte lores text page dumps |
+| `IMAGE_FMT_DLGR` | 2048 byte double lores dumps, auxiliary bank followed by main bank |
+| `IMAGE_FMT_DHGR` | 16384 byte double hires dumps, auxiliary bank followed by main bank |
+
+DLGR and DHGR require `apple2.e` or `apple2.c` with auxiliary video memory.
+Both banks use native screen row order. DOS binary headers are accepted.
+Lores loading preserves the unused memory slots in each screen bank.
+
+For PNG or PCX conversion, select a format with `@INCLUDE_IMAGE ... AS`:
+
+| Format | Size | Colors |
+| --- | --- | --- |
+| `a2-dlgr` | 80x48 | 16 |
+| `a2-dhgr` | 140x192 | 16 |
+| `a2-dhgr-mono` | 560x192 | 2 |
+
+Raw DHGR dumps default to color. Use `AS a2-dhgr-mono` for monochrome.
+Both use `IMAGE_FMT_DHGR`; the image auxiliary value is 0 for color and
+1 for monochrome. `IMAGE_LOAD` selects the matching display mode.
 
 DOS 3.3-backed runtime image loading is available.
-Converted HGR and LGR images use RLE8 automatically when it makes the image
+Converted images use RLE8 automatically when it makes the image
 smaller. This works for both embedded images and DOS 3.3 image files.
 
-`IMAGE_WIPE` and `IMAGE_SLIDE` support unpacked HGR images in all four
-directions, using 14-dot by 8-line blocks to preserve color alignment.
+`HGR_IMAGE_BYTES` is 8204: an unpacked 8192 byte HGR screen plus the
+12 byte crustyBASIC image header. Declare a buffer as
+`PICTURE[HGR_IMAGE_BYTES - 1] AS U8`; array bounds are inclusive.
+`DLGR_IMAGE_BYTES` is 2060 and `DHGR_IMAGE_BYTES` is 16396, also including
+the 12 byte image header. Use `nodos` output for embedded unpacked DHGR
+images to leave room for the 16 KB source buffer.
+
+Image effects use `UNPACKED` images.
+`IMAGE_WIPE` and `IMAGE_SLIDE` support unpacked HGR, DLGR, and DHGR images
+in all four directions. Blocks preserve color alignment: 14x8 dots for HGR,
+2x2 pixels for DLGR, 7x8 pixels for DHGR color, and 28x8 dots for DHGR monochrome.
 `IMAGE_FADE_IN` and `IMAGE_FADE_OUT` use a seven-step patterned pixel fade
-that preserves the color phase bits. Fade out works on the active HGR page.
-The `image_bars` example cycles through fades, wipes, and slides.
+that preserves pixel colors. Fade out works on the active graphics screen.
+DLGR and DHGR effects update both memory banks.
 
-`IMAGE_DISSOLVE_IN` reveals scattered pixels from an unpacked HGR image.
-`IMAGE_DISSOLVE_OUT` erases the active hires page to black. Both preserve
-the hires color bits. Use `0` for the delay to run at full speed.
-The optional final block size is 1, 2, 4, or 8 hires dots per side.
-
-The `hgr_slideshow` example uses an embedded image and two DOS 3.3 files,
-dissolving each image in and out. Press Space for the next effect; press
-1, 2, 4, or 8 to choose the next transition's block size.
-
-NOTE: native DLGR and DHGR image display is not available (yet).
+`IMAGE_DISSOLVE_IN` reveals scattered pixels from an unpacked HGR, DLGR,
+or DHGR image. `IMAGE_DISSOLVE_OUT` erases the active graphics screen to
+black. Both preserve pixel colors. Use `0` for the delay to run at full speed.
+The optional final block size is 1, 2, 4, or 8 pixels per side, using
+individual dots for HGR and DHGR monochrome.
 
 ## Hardware Names
 
@@ -211,18 +256,45 @@ Joystick reads expose a digital view of the game controls. Paddle reads
 return the raw 0..255 timer value, and button reads use the Apple
 pushbuttons.
 
+On `apple2.c`, `MOUSE_X` and `MOUSE_Y` read the mouse position.
+`MOUSE_POSITION X, Y` sets its position; `MOUSE_BUTTON(0)` and bit 0 of
+`MOUSE_STATE` read the button. Mouse tracking starts on the first position
+read or move. Programs draw their own pointer.
+
 Capability summary:
 
 | Capability | Value |
 | --- | --- |
 | Keyboard | Yes |
 | Joystick ports | 2 |
-| Buttons | 2 per port |
+| Buttons | 2 per port with stacked wiring, otherwise 1 |
 | Stick type | Analog |
 | Paddle axes | 4 |
 | Keypad ports | 0 |
 | Keypad `INPUT` | No |
 | Mouse buttons | `apple2.c`: 1, others: 0 |
+
+`APPLE2_JOYSTICK_STACKED` defaults to `TRUE` for stacked adapter wiring:
+
+| Port | Button 0 | Button 1 |
+| --- | --- | --- |
+| 0 | PB0 (`$C061`) | PB1 (`$C062`) |
+| 1 | PB2 (`$C063`) | PB1 (`$C062`, shared) |
+
+For wiring with one button per joystick, use:
+
+```basic
+@OPTION APPLE2_JOYSTICK_STACKED FALSE
+```
+
+This maps button 0 to PB0 on port 0 and PB1 on port 1, and sets
+`JOY_BUTTONS` to 1. `INPUT_ANY` follows the selected wiring and checks
+each switch at most once, respecting `INPUT_JOY_ENABLE`.
+
+Select the wiring used by your adapter or emulator. The shared PB1 button
+cannot be assigned to just one joystick. On the Apple IIe, the Apple keys
+also activate PB0 and PB1. A Shift-key modification on an Apple II or II+
+can occupy PB2 and interfere with the second joystick.
 
 ## Timing
 
@@ -231,8 +303,7 @@ running. It reports 60 Hz.
 
 On `apple2.e` and `apple2.c`, `FRAME_WAIT` synchronizes with vertical
 blanking using the handler for that system. On `apple2.plus` and `apple2.int`,
-bare `FRAME_WAIT` advances the logical frame without adding a delay. Counted
-frame waits use an approximate 60 Hz software delay on those systems.
+`FRAME_WAIT` uses an approximate 60 Hz software delay.
 
 ## Sound
 
@@ -261,11 +332,11 @@ TONE PERIOD, DURATION, ASYNC
 ```
 
 The two-argument form is synchronous. The three-argument form is also
-synchronous when `ASYNC` is false. When `ASYNC` is true, the call plays a
-short initial part and queues the rest for available `FRAME_WAIT` idle time.
-Only Apple //e currently provides that idle playback window. Joystick
-sampling uses the same window, so queued tones should not be used while
-polling the joystick.
+synchronous when `ASYNC` is false. When `ASYNC` is true on the Apple //e,
+the call queues the tone for available `FRAME_WAIT` idle time. The other
+systems have no idle playback window, so the tone plays before the call
+returns. Joystick sampling uses the same window, so queued tones should
+not be used while polling the joystick.
 
 After enabling the card, portable `SOUND_OFF`, `SOUND_ALL_OFF`,
 `BEEP`, `PLAY_NOTE`, `PLAY_NOTE_SHAPE`, `PLAY_NOTE_FOR`, and
@@ -297,9 +368,10 @@ is enabled.
 The Apple II provider uses DOS 3.3 text-file commands through the
 monitor I/O vectors. The program must be running under DOS 3.3.
 
-Sequential read, write, and append are supported. Update and directory
-modes are not supported. Apple II-specific opens can pass the DOS mode
-directly.
+Sequential read, write, append, and directory listing are supported;
+update mode is not. A directory listing returns one catalog name per
+line. Apple II-specific opens can pass the DOS mode directly.
+File channels run from 0 to 15, and DOS 3.3 allows 3 files open at once.
 
 Target-specific helpers are also callable: `APPLE_DOS_COMMAND`,
 `APPLE_DOS_OPEN`, `APPLE_DOS_CLOSE`, `APPLE_DOS_READ_SELECT`,
@@ -327,9 +399,3 @@ strings. Its `RND(N)` returns an integer from `0` through `N - 1`.
 | --- | --- |
 | `{CR}`, `{RETURN}`, `{ENTER}` | `$0D` |
 | `{TAB}` | Four spaces |
-
-## Examples
-
-Apple II specific examples live under:
-
-- [`../../examples/apple2/`](../../examples/apple2/)

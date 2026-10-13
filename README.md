@@ -107,7 +107,7 @@ Build the runnable program:
 crustybasic hello.cbs
 ```
 
-For the C64, this writes `hello.prg` under `build/` and prints its
+For the C64, this writes `hello.prg` beside `hello.cbs` and prints its
 path. Use `-o` to choose a different path. You can also write the
 command explicitly:
 

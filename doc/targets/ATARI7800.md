@@ -3,6 +3,9 @@
 Use `@OPTION TARGET atari7800` for Atari 7800 cartridges. The system
 name is `atari7800.orig`. Output is a 32K `.a78` cartridge image.
 
+Use `@OPTION OUTPUT_TYPE cart-32k-ram` for a 32K cartridge with 16K
+RAM at `$4000-$7FFF`. The cartridge image selects SuperGame RAM hardware.
+
 Portable runtime calls are documented in [`../API.md`](../API.md).
 This page covers Atari 7800 modes and hardware notes.
 
@@ -20,6 +23,7 @@ This page covers Atari 7800 modes and hardware notes.
 | Buttons | 2 per port, with one-button fallback |
 | Paddles | 4 analog axes and 4 triggers |
 | Sound | 2 TIA voices |
+| Recursive PROCs | Yes |
 
 The target provides MARIA text, portable CELL text access,
 palette/background control, frame hooks, joystick, console, and paddle
@@ -58,8 +62,9 @@ fails the build if code grows into the signature or vector area.
 
 `SCREEN_TEXT` selects the 20x24 MARIA text screen. `PRINT`,
 `POSITION`, `CLS`, `PUT_CHAR`, `CELL_PUTC`/`CELL_GETC`, and
-`CELL_MEMMOVE` all operate on it. The charmap covers ASCII `$20-$5F`
-(uppercase); `CELL_CODE` maps a character to its cell code.
+`CELL_MEMMOVE` all operate on it. `PRINT` scrolls the screen up when it
+passes the bottom row. The charmap covers ASCII `$20-$5F`; lowercase
+letters print as uppercase. `CELL_CODE` maps a character to its cell code.
 
 `COLOR color` changes the foreground color used by `PRINT` and
 the CELL text helpers. It updates all three colors in MARIA palette 0.
@@ -96,6 +101,7 @@ All six native MARIA names are also available directly:
 `MARIA_320A` is the full-height tile display. It uses 8x8 tiles instead
 of a writable pixel bitmap, so use the TILE API with it. `PLOT`,
 `POINT`, and the other pixel calls are not available in this mode.
+`PRINT`, `POSITION`, `TEXT_COLUMNS`, and the CELL calls use all 40 columns.
 
 The other five native modes use RAM bitmap surfaces. Each logical row
 is displayed over two scanlines, giving a 160-scanline bitmap between
@@ -125,6 +131,9 @@ and onward. `CELL_CLS` clears only the active text region. Bitmap rows
 behind that region are hidden, while bitmap drawing keeps its normal
 coordinates. Passing zero text rows selects the requested bitmap mode
 without a text region.
+
+In a plain bitmap mode `PRINT` output is dropped. In `DISPLAY_MIXED`,
+`PRINT` writes to the text region and starts at its first row.
 
 ## Tiles
 
@@ -245,12 +254,22 @@ active:
 | X granularity | 2 pixels (`SPRITE_ALIGN_X`) |
 | Palettes | 8 MARIA palettes (`SPRITE_PALETTE`, `SPRITE_PALETTE_SET`) |
 
-`@OPTION A7800_SPRITE_COUNT N` selects 1 through 7 sprite slots.
+`@OPTION SPRITE_COUNT N` selects 1 through 7 sprite slots.
 Fewer slots leave more RAM for program data.
 
 Updates are staged and pushed with `SPRITES_FLUSH` once per frame
 (`SPRITE_NEEDS_VBLANK_FLUSH = TRUE`). Call `FRAME_WAIT` before the flush
-so the display list changes happen during blanking. `SPRITE_COLOR`
+so the display list changes happen during blanking.
+
+`@OPTION SPRITE_DOUBLE_BUFFER TRUE` keeps a second copy of the display
+lists. `SPRITES_FLUSH` can then run at any point in the frame, and its
+changes appear at the next `FRAME_WAIT`, so call the flush before
+`FRAME_WAIT`. A second flush before `FRAME_WAIT` waits for the next
+frame. This uses about 1K more RAM unless the program also uses a bitmap
+display. After a program calls `MARIA_TILE_DISPLAY_LIST_ADDR`, sprites
+update the one copy in place.
+
+`SPRITE_COLOR`
 gives each portable sprite its own palette by default, and
 `SPRITE_PALETTE_SET` fills all three colors of a MARIA palette with `c0`
 because a 320A sprite pixel has one color. MARIA has no
@@ -271,6 +290,9 @@ MARIA display-list interrupts drive the portable raster helpers:
   bitmap displays.
 - `RASTER_LINE_INSTALL ADDR(hook)` runs the hook at each marked row;
   `RASTER_INDEX` counts hook calls within the frame.
+  `RASTER_LINE_INSTALL ADDR(hook), count` supplies the number of marked
+  rows per frame when using a custom display list with interrupt flags
+  already set.
 - `RASTER_FRAME_INSTALL ADDR(hook)` runs the hook once per frame, at the
   first marked row, or from the bottom blank zone when no row is marked.
 - `RASTER_STOP` stops the hooks but keeps their addresses and marked rows.
@@ -326,7 +348,7 @@ Use `JOY_BUTTON(0, 1)` for the second button on port 0. If a
 falls back to its single fire button. `STRIG` is an Atari 8-bit computer
 call and is not part of the Atari 7800 input API.
 
-`CONSOLE` returns an active-high mask: bit 0 is Start, bit 1 is Select,
+`CONSOLE_SWITCHES` returns an active-high mask: bit 0 is Start, bit 1 is Select,
 bit 3 is Pause, and bits 6 and 7 are the two difficulty switches.
 `CONSOLE_START`, `CONSOLE_SELECT`, and `CONSOLE_PAUSE` return their
 individual mask bits. `CONSOLE_P0_DIFFICULTY` and
@@ -376,6 +398,10 @@ payload before optional RLE8 packing.
 `a7800-multi` remains the compact 124x48 layout. `cb-image` also accepts
 its 1488 byte raw screen data or 1492 byte screen and color data. Runtime
 image file loading is not available.
+
+All image layouts support wipes, slides, palette fades, and dissolves.
+Fades use 16 brightness steps; dissolves use 1, 2, 4, or 8 pixel blocks.
+Effects use unpacked images.
 
 ## Assembler
 

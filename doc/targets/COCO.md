@@ -81,26 +81,25 @@ hardware colorset. Its background argument cannot select a separate
 PMODE 4 pixel color.
 
 The bitmap tile backend follows the active mode's plot color support.
+`TILE_PRINT` draws 8x8 glyphs in VDG and GIME bitmap modes, using the
+current drawing color in color bitmap modes.
 
 ### Extended Color BASIC compatibility
 
 The `extended_color_basic` dialect accepts `PMODE`, `SCREEN`, `PCLS`,
 `COLOR`, `PSET`, `PRESET`, `PPOINT`, `LINE`, `CIRCLE`, `PAINT`,
-`PCOPY`, and `DRAW`, but it is not yet a complete Extended Color BASIC
-graphics implementation:
+`PCOPY`, and `DRAW` with these differences from the ROM:
 
 - The `PMODE` page argument is accepted but ignored.
 - `COLOR` uses the foreground to select the hardware colorset; its
   background argument is ignored.
-- Graphics `GET` and `PUT` are not implemented.
-- `PCOPY` is currently a no-op.
+- `PCOPY` is a no-op.
 - `CIRCLE` ignores height, start angle, and end angle arguments.
 - `PAINT` ignores paint and border colors and uses a fixed 256-entry
   point stack. A large fill can stop before the area is complete.
 - `DRAW` implements `U`, `D`, `L`, `R`, `E`, `F`, `G`, `H`, `M`, `B`,
   `N`, and `C`. It parses but ignores angle and scale, and skips the
   `X` substring command.
-- Mixed text and graphics mode is not implemented.
 
 Both Color BASIC dialects accept `SOUND tone, duration` and `AUDIO ON` or
 `AUDIO OFF`. Pitch follows the ROM tone scale, with tone 89 near middle C,
@@ -118,6 +117,10 @@ Converted PMODE 4 descriptors use RLE8 when it makes the stored image
 smaller. Embedded images and converted `.img` files are decoded directly
 into the PMODE 4 bitmap. Images that do not shrink stay uncompressed.
 
+`IMAGE_WIPE` and `IMAGE_SLIDE` move the bitmap in all four directions.
+`IMAGE_FADE_IN` and `IMAGE_FADE_OUT` use four dither steps. Dissolves
+use 1, 2, 4, or 8 pixel blocks. Effects use unpacked images.
+
 ## Software sprites
 
 CoCo sprites use the 256x192 PMODE 4 bitmap, with eight software sprite
@@ -129,9 +132,10 @@ any nonzero value. Use `WHITE` for the foreground; `COLOR` selects the
 display colorset. PMODE 4 has no independent sprite palettes, so
 `SPRITE_PALETTE` and `SPRITE_PALETTE_SET` have no effect.
 
-Page flipping is enabled by default, using `$3800` and `$6000`.
-`SPRITES_FLUSH` draws on the hidden page and swaps the displayed page.
-With `SOFT_SPRITE_PAGE_FLIP FALSE`, `SPRITES_FLUSH` draws on the visible
+Page flipping is enabled by default, using `$4600` and `$6000`.
+`SPRITES_FLUSH` draws on the hidden page and swaps during vertical blank.
+The following `FRAME_WAIT` counts that wait and runs frame services.
+With `SPRITE_DOUBLE_BUFFER FALSE`, `SPRITES_FLUSH` draws on the visible
 page. Position, shape, and visibility changes take effect on the next flush.
 
 ## Text and cells
@@ -159,7 +163,9 @@ API on the Coco.
 
 `PADDLE` reads one of the four raw analog axes. `JOY` converts a pair
 of axes to the portable digital direction mask. `KEY_HELD` polls the
-keyboard matrix without consuming typed input.
+keyboard matrix without consuming typed input. It knows letters in
+either case, digits, `@ , - . / : ;`, space, the arrow keys, `ENTER`,
+`CLEAR`, and `BREAK` as code 27.
 
 The joystick button lines share the keyboard matrix. `JOY_BUTTON`
 restores the previous keyboard column selection at `$FF02` after
@@ -170,10 +176,11 @@ reading the buttons.
 `FRAME_WAIT` uses the PIA VSYNC flag. CoCo timing assumes 60 Hz NTSC;
 there is no PAL timing selection.
 
-The general tick source is Color BASIC `TIMER` at `$0112`. It is a
-16-bit 60 Hz counter and wraps in about 18 minutes. Cassette and sound
-ROM activity can mask the IRQ and pause it. A cartridge relies on the
-ROM's existing IRQ setup.
+The general tick source is the Extended Color BASIC `TIMER` word at
+`$0112`. It is a 16-bit 60 Hz counter and wraps in about 18 minutes.
+Cassette and sound ROM activity can mask the IRQ and pause it. A
+cartridge relies on the ROM's existing IRQ setup. `coco.1` has no
+`TIMER`, so its ticks count `FRAME_WAIT` frames.
 
 ## Sound
 
@@ -273,20 +280,16 @@ Append, update, directory, and file commands return `FILE_UNSUPPORTED`.
 `FILE_OPEN_NATIVE` accepts the input/output mode bytes described below;
 its drive argument is ignored for tape.
 
-See [`cassette.cbs`](../../examples/coco/crustybasic/cassette.cbs) for a
-save and reload example.
-
 ### Disk
 
 Build a Disk BASIC `.bin` and a 35 track `.dsk` together with:
 
 ```text
-crustybasic build examples/coco/crustybasic/disk.cbs -o disk.bin
+crustybasic build hello.cbs --set disk-image=true -o hello.bin
 ```
 
-The disk example enables `disk-image = true` in `disk.config.toml`.
-For other programs, use `--set disk-image=true` or the same config setting.
-Mount the image in drive 0, then enter `LOADM "DISK":EXEC`.
+The same `disk-image = true` setting can go in the program's config file.
+Mount the image in drive 0, then enter `LOADM "HELLO":EXEC`.
 Program names are uppercase, shortened to eight characters, with a `BIN` extension.
 
 The bundled `cb-coco-dsk-wrap` tool creates the image without external disk tools:
@@ -301,19 +304,21 @@ characters become underscores. Duplicate names after shortening report an error.
 File bytes are copied unchanged; use carriage returns for text line endings.
 
 Disk file calls use Disk BASIC ROM routines. They assume a disk
-controller and a recognized Disk BASIC ROM are present at runtime.
-The implementation recognizes the Disk BASIC 1.0 and 1.1 signatures
-currently in the library.
+controller and a Disk BASIC 1.0 or 1.1 ROM are present at runtime.
 
-Sequential read, write, and directory listings are implemented.
+Disk file channels run from 1 to 15, and all 15 can be open at once.
+Sequential read, write, and directory listings are available.
 Append and update modes report unsupported. `FILE_OPEN_NATIVE` also accepts
-the Disk BASIC direct mode byte, but random-record field and record
-operations are not implemented.
+the Disk BASIC direct mode byte.
 
 `AUX1` is `DISK_FILE_MODE_INPUT`, `DISK_FILE_MODE_OUTPUT`, or
 `DISK_FILE_MODE_DIRECT`. `AUX2` is the default drive. File names use
 the Disk BASIC `NAME/EXT:DRIVE` form; an explicit drive in the path
-overrides `AUX2`.
+overrides `AUX2`. `NAME.EXT` works too. Names are uppercased and cut to
+8 characters with a 3 character extension.
+
+`ON_ERROR` catches disk, directory, and tape errors, and `ERR()`
+returns the error status. Reaching the end of a file is not an error.
 
 `FILE_MODE_DIR` lists the whole disk. Use `""` for drive 0 or `":1"`
 for drive 1. Read with `FILE_READ_BYTE` or `FILE_READ_LINE`; each line
@@ -330,9 +335,6 @@ Known correctness and safety gaps:
 
 - `IMAGE_FILE_SUPPORTED` is true for every CoCo
   system even when Disk BASIC hardware and ROM are absent.
-- `DISK_SET_NAME` does not bound the path while copying it into the
-  eleven-byte Disk BASIC name and extension work area. A long path can
-  overwrite adjacent ROM workspace.
 
 ## FujiNet and network
 
@@ -348,20 +350,7 @@ request can jump through invalid vectors or wait forever.
 
 `FUJINET_SUPPORTED`, `NET_CLIENT_SUPPORTED`, and `NET_AVAILABLE`
 therefore mean that the library code was compiled, not that working
-FujiNet hardware was detected. The transport was source-audited but
-not run against a FujiNet device during this audit.
-
-## Error handling
-
-`ON_ERROR`, `ERR`, and the shared error surface compile because the
-6809 stub reserves the expected state. The CoCo ROM wrappers do not
-install or dispatch a real error trap. `ON_ERROR_SUPPORTED` is
-currently set to true and should be false until the trap is
-implemented, or the library should gain the real ROM error-vector
-hook.
-
-The private Disk BASIC file provider has its own local error hook. That
-does not make the public `ON_ERROR` surface functional.
+FujiNet hardware was detected.
 
 ## `REAL`
 
@@ -375,7 +364,7 @@ CoCo `REAL` uses the Color BASIC floating-point format.
 `POW(X, N)` with a non-negative integer constant `N` does not need
 Extended Color BASIC. Fractional powers do.
 
-## CoCo 3 audit
+## CoCo 3
 
 The `coco.3` system provides the GIME graphics, text, palette, video
 offset, and MMU register names. The manifest exposes:
@@ -394,6 +383,20 @@ offset, and MMU register names. The manifest exposes:
 - `$FFA0` through `$FFAF` MMU task entries
 - `$FFB0` through `$FFBF` palette entries
 
+CoCo 3 color constants name 16 distinct palette slots. `BLACK` is 0,
+`WHITE` is 1, and `GREEN` is 5. Palette colors use RGB monitor encoding.
+`BORDER_COLOR` writes the named color's RGB value.
+
+`PALETTE_SET index, color` changes a slot using a named color or
+`RGB(r, g, b)`. RGB channels are reduced to two bits each. GIME bitmap
+modes use slots 0 through 15, with 2 or 4 color modes displaying only
+the first 2 or 4 slots. GIME text uses slots 0 through 7; palette writes
+change the matching foreground and background colors together.
+
+Selecting a display mode installs its starting palette. `PALETTE_RESET`
+restores that palette. VDG modes use their compatible colors, and
+returning to BASIC restores the VDG palette.
+
 Native bitmap names use `GIME_<width>X<height>_<colors>`. The guaranteed
 width/color pairs are 128, 160, 256, and 320 pixels with 2, 4, or 16
 colors, plus 512 and 640 pixels with 2 or 4 colors. Every pair has 192,
@@ -408,58 +411,6 @@ so `CELL_COLORS_PER_CELL` is `2`.
 Portable `BITMAP_LORES` keeps the compatible SG4 display. On CoCo 3,
 `BITMAP_HIRES` selects `GIME_640X192_2` and `BITMAP_MULTICOLOR` selects
 `GIME_320X192_16`.
-
-## Improvement order
-
-The audit suggests this order:
-
-1. Correct capability claims and unsafe runtime assumptions:
-   `ON_ERROR_SUPPORTED`, Disk BASIC availability, FujiNet detection,
-   `FILE_READ_LINE` EOF handling, and bounded Disk BASIC names.
-2. Complete CoCo 3 fast CPU mode, scrolling, timer, and interrupts.
-3. Complete Extended Color BASIC pages, `PCOPY`, graphics `GET`/`PUT`,
-   and mixed mode.
-4. Add software sprites for color graphics modes with palette support.
-5. Improve sound with nonblocking playback, full period handling,
-   noise, and timed sample output.
-6. Add serial interfaces and runtime tests for disk,
-   keyboard, joystick, sound, and FujiNet.
-
-## Verification performed
-
-The July 2026 audit used MAME 0.276 with a CoCo ROM and standard
-Program Pak output.
-
-A small primitive probe visibly confirmed a box, diagonal line,
-horizontal line, circle, and point at their intended coordinates.
-The larger [`star_rider.cbs`](../../examples/coco/crustybasic/star_rider.cbs)
-showcase visibly confirmed:
-
-- an eight-color semigraphics intro
-- concentric circles and color bars
-- a PMODE 4 logo, star field, moon, craters, and terrain
-- two independently moving 8x8 sprites
-- repeated `FRAME_WAIT` and page-flipped `SPRITES_FLUSH`
-
-The runtime check caught a real Program Pak bug: mutable graphics,
-sprite, and sound bytes had been assembled into cartridge ROM. They
-are now typed private variables placed in RAM. Focused compiler tests
-check that cartridge assembly aliases this state to `__cb_vars_start`
-and does not emit writable `FCB` or `FDB` labels in ROM.
-
-Focused tests also compile the Extended Color BASIC colorset path,
-native CoCo image display, bitmap tile drawing, PMODE 4 spans and
-colors, one- and two-sprite page flipping, and low-byte sound periods.
-
-Not runtime-tested in this audit:
-
-- typed text input and held-key behavior
-- physical joystick and button input
-- sound pitch, duration, and sample quality
-- Disk BASIC files and image loading
-- FujiNet or DriveWire networking
-- public `ON_ERROR`
-- CoCo 3 native hardware
 
 ## Hardware names
 
@@ -516,7 +467,7 @@ is `STRING`.
 In these dialects, positive `RND(N)` returns an integer from `1`
 through `N`. Use `RAND(N)` for portable `0` through `N - 1` values.
 
-## Sources used for the audit
+## References
 
 - [Color Computer Technical Reference Manual, Tandy](https://colorcomputerarchive.com/repo/Documents/Manuals/Hardware/Color%20Computer%20Technical%20Reference%20Manual%20%28Tandy%29.pdf)
 - [Color Computer 3 Service Manual, Tandy](https://colorcomputerarchive.com/repo/Documents/Manuals/Hardware/Color%20Computer%203%20Service%20Manual%20%28Tandy%29.pdf)
@@ -528,9 +479,3 @@ through `N`. Use `RAND(N)` for portable `0` through `N - 1` values.
   [`bas.asm`](../../ref/tandy/color_basic/bas.asm),
   [`extbas.asm`](../../ref/tandy/color_basic/extbas.asm), and
   [`supbas.asm`](../../ref/tandy/color_basic/supbas.asm)
-
-## Examples
-
-See [`../../examples/coco/`](../../examples/coco/) and the
-[`star_rider.cbs`](../../examples/coco/crustybasic/star_rider.cbs)
-showcase.
