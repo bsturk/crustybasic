@@ -2,6 +2,8 @@ name: Update Subfolder Screenshots README
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'screenshots/**'
   workflow_dispatch:
