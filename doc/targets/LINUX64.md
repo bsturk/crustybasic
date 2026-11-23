@@ -44,8 +44,12 @@ build and run without SDL2 when they do not use sound or audio.
 
 `PRINT`, `CLS`, `POSITION`, `COLOR`, `CURSOR_HIDE`, and
 `CURSOR_SHOW` use the terminal. Keyboard input uses raw terminal input.
+`COLOR fg, bg` selects foreground and background colors from the terminal's
+16 color palette.
 The original input mode and visible cursor are restored when the program
-exits normally or receives Ctrl C.
+exits normally or receives Ctrl C, SIGTERM, SIGHUP, or SIGQUIT. Input mode
+is restored while suspended and reapplied on resume. A blocking key read
+ends the program when its input stream closes.
 
 `RAWKEY` and `RAWKEY_CODE` read typed characters, like `INKEY` and
 `INKEY_CODE`. They do not report whether a key is held or released,
@@ -91,9 +95,10 @@ store elapsed microseconds in `TIMER_HI:TIMER_LO`.
 ## Sound And Audio
 
 The portable sound API provides four square wave voices through SDL2.
+Voices continue until stopped, including during input and commands.
 Prepared audio accepts PCM WAV data from an embedded CBA asset or a file.
-Playback advances automatically. `SOUND_PRESENT` tries to open the SDL2
-output used by portable notes.
+Playback advances automatically. `SOUND_PRESENT` reports whether SDL2
+audio output is available.
 
 For headless runs, select SDL2's silent audio driver to avoid ALSA device
 errors:

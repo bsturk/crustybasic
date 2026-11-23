@@ -141,6 +141,7 @@ These options can be set from the command line with `--set key=value`:
 | `file-media` | `disk`, `tape`, `host`, `card`, `cdrom` | Choose the storage the file API uses when a path names no device. |
 | `tile-backend` | `cell`, `hardware`, `bitmap`, `kernel` | Choose which kind of screen the TILE API uses. |
 | `optimize` | `default`, `speed`, `size` | Favor speed, size, or the default balance. Source can test `OPTIMIZE_DEFAULT`, `OPTIMIZE_SPEED`, and `OPTIMIZE_SIZE`. |
+| `compact-real` | `true` or `false` | Share floating point routines during speed builds to reduce code size. The default is `false`. |
 | `default-initialization` | `true`, `false` | Start PROC locals at zero or empty on each call. Default is `true`. |
 | `math-real` | `auto`, `target`, `builtin` | Choose automatically, use the target's `REAL` math, or use crustyBASIC's. |
 | `builtin-real` | `auto`, `q16_16`, `q24_8`, `binary64` | Choose how crustyBASIC stores `REAL` values. |
@@ -185,6 +186,11 @@ Set `math-real=builtin` to use crustyBASIC's own `REAL` math.
 `builtin-real` then chooses its format. It has no effect when
 `math-real=target`.
 
+To keep the target's `REAL` format while favoring speed, combine
+`--set optimize=speed --set math-real=target`. On targets with fast math
+helpers, this adds the required helpers to the program. Using
+`optimize=size math-real=target` favors the smaller ROM calls instead.
+
 | `builtin-real` | Meaning |
 | --- | --- |
 | `auto` | Use the target's preferred crustyBASIC format. |
@@ -202,6 +208,7 @@ with `--set`:
 | `memory-fit-checks` | `true` or `false` | Treat a program that runs past the target memory map as an error. `false` builds it with warnings instead. The default is `true`. |
 | `startup` | Name shown by `crustybasic target-info` | Choose how the program starts on the target. The target normally picks this for you. |
 | `memory-regions` | One or more target region names | Let crustyBASIC use these named memory regions. |
+| `memory-regions-off` | One or more target region names | Keep crustyBASIC out of regions that are enabled automatically. |
 | `memory-actions` | One or more target action names | Request extra setup named by the target page. |
 
 ## Memory regions
@@ -235,6 +242,14 @@ memory-regions = ["name"]
 Repeat `@OPTION MEMORY_REGION` to enable more than one region in source,
 or add more names to the config array. You do not need to list regions
 that `target-info` marks as enabled automatically.
+
+To keep crustyBASIC out of a region that is enabled automatically, for
+example when the program puts its own machine code there, use
+`@OPTION MEMORY_REGION_OFF name` in source or this in the config file:
+
+```toml
+memory-regions-off = ["name"]
+```
 
 Some targets offer extra setup that can be requested without enabling a
 memory region:
@@ -519,11 +534,11 @@ the ones needed by the targets you use.
 
 | Targets | Required executable | Download |
 | --- | --- | --- |
-| `amiga` | `vasmm68k_mot` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasmm68k_mot_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `amiga`, `atarist` | `vasmm68k_mot` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasmm68k_mot_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
 | `apple2`, `atari2600`, `atari5200`, `atari7800`, `atari800`, `c128`, `c64`, `nes`, `plus4`, `vic20` | `vasm6502_oldstyle` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasm6502_oldstyle_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
 | `coco` | `vasm6809_oldstyle` | [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
 | `dos16`, `linux64`, `pcjr`, `tandy1000`, `win64` | `nasm` | [NASM downloads](https://www.nasm.us/pub/nasm/releasebuilds/) |
-| `zx81`, `zxspectrum` | `vasmz80_oldstyle` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasmz80_oldstyle_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
+| `samcoupe`, `zx81`, `zxspectrum` | `vasmz80_oldstyle` | [Windows 64 bit](http://sun.hasenbraten.de/vasm/bin/rel/vasmz80_oldstyle_Win64.zip), [source](http://sun.hasenbraten.de/vasm/index.php?view=relsrc) |
 
 crustyBASIC searches the bundled assembler folders, then `PATH`. A
 release bundle contains the matching
@@ -539,6 +554,7 @@ The platform folder names are:
 | Windows 64 bit | `windows-x86_64` |
 | Windows 32 bit | `windows-x86` |
 | Linux x86-64 | `linux-x86_64` |
+| Linux ARM 64 bit | `linux-aarch64` |
 | macOS Apple silicon | `macos-aarch64` |
 | macOS Intel | `macos-x86_64` |
 
@@ -564,7 +580,8 @@ crustybasic build hello.cbs --set target=atari800 --assembler mads
 crustybasic compile hello.cbs --set target=zxspectrum --assembler pasmo -o hello.s
 ```
 
-[Pasmo](https://pasmo.speccy.org/) is available for the Z80 targets.
+The SAM Coupe uses `vasmz80_oldstyle` in `tools/assemblers/vasm/<platform>/`.
+The ZX81 and ZX Spectrum also accept [Pasmo](https://pasmo.speccy.org/).
 [MADS](https://mads.atari8.info/) is available for `apple1`, `apple2`,
 `atari5200`, `atari7800`, `atari800`, `bbcmicro`, `c1p`, and `nes`.
 
@@ -651,9 +668,7 @@ These are some commonly used source options:
 @OPTION TARGET c64
 @OPTION DIALECT crustybasic
 @OPTION ARRAY_BASE 1
-@OPTION MATH_REAL BUILTIN
 @OPTION BUILTIN_REAL Q16_16
-@OPTION MATH_INTEGER BUILTIN
 @OPTION NUMERIC_MODE INTEGER
 @OPTION REGION REGION_NTSC
 @OPTION STRING_DEFAULT_CAPACITY 64
@@ -664,6 +679,10 @@ These are some commonly used source options:
 Put `@OPTION TARGET` or `@OPTION SYSTEM` before any target specific
 statements. `@OPTION DIALECT` fills in the dialect's defaults without
 replacing options you have already set.
+
+Target specific options use the target name as a prefix. Options for
+other targets are ignored, so one source can contain settings for several
+targets.
 
 Run `crustybasic options` for the available command line options. See
 [source options](LANGUAGE.md#compiler-options) and
@@ -694,6 +713,10 @@ small value and adjust it by feel.
 | `examples/__MULTI_TARGET__/` | Portable crustyBASIC programs, one source for many targets. |
 | `examples/<target>/crustybasic/` | Target specific crustyBASIC programs. |
 | `examples/<target>/dialects/<dialect>/` | Compatibility dialect listings. |
+| `<program>/<program>.crusty` | Editor project with paths to its code and assets. |
+| `<program>/src/<program>.cbs` | Main listing for a program with assets. |
+| `<program>/src/data/` | Asset constants and tables, separate from code. |
+| `<program>/sprites/`, `charsets/`, `tiles/`, `shapes/`, `music/` | Editable asset files. |
 
 The `crustybasic.config.toml` in a program's folder normally chooses the
 target and dialect:

@@ -90,8 +90,8 @@ pending cells appear at the next input, wait, `POSITION`, `COLOR`,
 `CELL_FLUSH`, or `FRAME_WAIT`.
 
 UI window mode draws text into the GDI window using 8x16 cells of a
-fixed pitch font. The text grid is a fixed 80x25, so `TEXT_MODE` returns
-`0` for other widths. The cell calls draw into the same grid: `PRINT`
+fixed pitch font. `DISPLAY TEXT_80X25` selects the 80x25 text grid.
+The cell calls draw into the same grid: `PRINT`
 and `CLS` appear at once, while `CELL_FLUSH` (also `FRAME_WAIT` and
 `GFX_SWAP`) shows pending cell changes. `COLOR`, `CELL_COLORS`, and
 per-cell `CELL_COLOR` are available; cell attributes are not.
@@ -118,6 +118,7 @@ The default graphics mode is `BITMAP_HIRES`.
 | `BITMAP_HIRES`, `GDI_640X480` | 640x480 | 16 | Default bitmap mode. |
 | `GDI_1024X768` | 1024x768 | 16 | Larger GDI bitmap mode. |
 | `GDI_256X192_SCALE2` | 256x192 logical | 16 | Draws at 512x384 centered in a 640x480 window. |
+| `GDI_320X200_SCALE2` | 320x200 logical | 16 | Draws at 640x400 centered in a 640x480 window. |
 | `BITMAP_LORES` | not supported | | |
 | `BITMAP_MULTICOLOR` | not supported | | |
 | `CELL_MULTICOLOR` | not supported | | |
@@ -133,7 +134,7 @@ Use `CELL_PRINT`, `CELL_COLOR`, and `CELL_COLORS` for the text region.
 frame updates, and window repainting. `DISPLAY` leaves mixed mode.
 Ordinary `PRINT` keeps its usual output destination. Use
 `WIN64_CONSOLE_WINDOW FALSE` to start without a console window. Closing
-the GDI window during mixed mode ends the program.
+the GDI window ends the program.
 
 `COLOR_RGB(r, g, b)` sets the graphics foreground using channels from
 0 through 255. It affects subsequent bitmap drawing, leaving existing
@@ -157,6 +158,35 @@ DO
 LOOP
 ```
 
+## Scrolling
+
+The default and `SCROLL_TYPE_SW` use pixel scrolling in every display
+mode. Both axes have a granularity of one logical pixel. The two scaled
+bitmap modes show each logical pixel as a 2x2 block in the window.
+Bitmap scrolling preserves the full RGB pixel values.
+
+Scrolling cells are 8x8 pixels in bitmap modes and 8x16 in text mode.
+`SCROLL_MOVE` accepts positive or negative pixel amounts, one axis per
+call, up to one cell width or height. `SCROLL_BEGIN` keeps the full view
+and adds a hidden backing column or row for each enabled axis.
+`SCROLL_BEGIN_REGION` selects a rectangle in scrolling cells; the area
+outside it stays fixed. Mixed display text rows stay fixed over the bitmap.
+
+Use `SCROLL_CELL_PUTC` and `SCROLL_CELL_COLUMN` to fill the backing
+cells. The optional foreground color is a logical palette index;
+without it, bitmap cells use the current RGB foreground.
+Text cells keep their background colors. Movement and cell changes
+appear together at `SCROLL_PRESENT`, which also waits for the next frame.
+
+Starting text scrolling in a console build copies the visible console
+characters and colors into an 80x25 GDI text window and selects `CELL`.
+The window uses the same 8x16 cells as GUI builds. Larger console views
+are cropped to 80x25; smaller views are padded with spaces.
+
+`SCROLL_CLOSE` releases the backing buffer. Text mode resumes ordinary
+cell rendering at the current cell boundary. Changing display mode also
+closes scrolling.
+
 ## Images
 
 Native image display supports:
@@ -165,7 +195,7 @@ Native image display supports:
 | --- | --- |
 | `IMAGE_FMT_WIN64_INDEXED` | 256x192, one palette index byte per pixel. |
 
-The converter accepts a 49152 byte raw index dump or indexed PNG/PCX.
+The converter accepts a 49152 byte raw index dump or PNG/PCX.
 Converted images use RLE8 when it makes them smaller and otherwise keep
 the original bitmap. Images are linked into the program rather than
 loaded from Windows files at runtime. Runtime image file loading is not
@@ -178,14 +208,14 @@ fade out works on any bitmap display.
 
 ## Sprites
 
-The Windows x64 target uses tiled software sprites drawn into the GDI
+The Windows x64 target uses software sprites drawn into the GDI
 bitmap buffer.
 
 | Feature | Value |
 | --- | --- |
 | Sprite count | Selected by `SPRITE_COUNT`, default 16 |
-| Size | Runtime `w * 8` by `h * 8` pixels |
-| Data bytes | 8 per tile |
+| Size | `w` by `h` pixels with sized `SPRITE_DATA`, or `w * 8` by `h * 8` pixels with `SPRITE_DATA_TILES` |
+| Data bytes | `(w + 7) / 8` per row with sized `SPRITE_DATA`, 8 per tile otherwise |
 | X range | 0 through 632 |
 | Y range | 0 through 472 |
 | Collision | General sprite hit flag |
@@ -194,8 +224,9 @@ bitmap buffer.
 Call `SPRITES_RESTORE` before changing the playfield beneath sprites.
 This keeps old backgrounds from covering the new drawing.
 
-Call `SPRITES_FLUSH` before `GFX_SWAP` to draw staged sprites into the
-buffered bitmap. `FRAME_WAIT` does not flush or publish sprites.
+After `SPRITES_ON`, `GFX_SWAP` draws pending sprites into the buffered
+bitmap and shows the completed picture. `FRAME_WAIT` does not flush or
+publish sprites.
 `SPRITE_DATA_TILES` stores tiles left to right and then top to bottom.
 `SPRITE_HIT_BG` counts any pixel under the sprite that is not black.
 

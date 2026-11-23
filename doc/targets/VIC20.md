@@ -22,6 +22,12 @@ notes. For command-line target selection and dialects, see
 All profiles use the VIC-20 KERNAL and BASIC V2 ROMs. `REAL` uses the BASIC
 ROM, and text output supports Commodore control codes.
 
+Use `--set optimize=speed --set math-real=target` for faster addition,
+subtraction, and multiplication with the BASIC five byte floating point
+format. The required routines occupy extra program RAM. Rounding can differ
+from ROM results. Division and transcendental functions use ROM;
+`optimize=size math-real=target` uses ROM throughout.
+
 The unexpanded profile has limited RAM. It is suitable for small
 text programs; custom images and software sprites generally require a RAM
 expansion.
@@ -94,22 +100,32 @@ The native VIC-20 mode names are:
 | --- | --- | --- | --- | --- |
 | `VIC_TEXT` | `$80` | 22x23 cells | One of 8 foreground colors per cell, plus one shared background | Normal VIC-I character mode, equivalent to portable `CELL` |
 | `VIC_CELL_MULTICOLOR` | `$81` | 22x23 cells | Four colors in each multicolor character | VIC-I multicolor character mode, equivalent to portable `CELL_MULTICOLOR` |
+| `VIC_CELL_MULTICOLOR_20X12` | `$82` | 20x12 cells | Four colors in each multicolor character | Double height characters that cover 160x192 pixels, the layout MINIPAINT images use |
 
 `CELL` and `VIC_TEXT` select the same hardware mode. `CELL_MULTICOLOR` and
 `VIC_CELL_MULTICOLOR` also select the same hardware mode. `DISPLAY_MODE`
 retains the mode name passed to `DISPLAY`, allowing portable and VIC-20 mode
 names to be distinguished.
 
-All modes report `DISPLAY_WIDTH = 22` and `DISPLAY_HEIGHT = 23`. In either
-multicolor mode, each character row contains four pixels. Each pixel is
+The 22 column modes report `DISPLAY_WIDTH = 22` and `DISPLAY_HEIGHT = 23`.
+`VIC_CELL_MULTICOLOR_20X12` reports 20 by 12. In each multicolor mode, each
+character row contains four pixels. Each pixel is
 encoded with 2 bits and displayed at double width. The four colors are the
 shared background, shared border, shared auxiliary color, and the cell
 foreground.
 
-`DISPLAY mode` returns `1` for all four supported names.
+`DISPLAY mode` returns `1` for all four 22 column names.
 `DISPLAY_HAS_MODE(mode)` reports support without changing the current mode.
-`DISPLAY_MODE_COLOR_COUNT` returns `4` for `CELL_MULTICOLOR` and
-`VIC_CELL_MULTICOLOR`, and `0` for the two normal character names.
+`DISPLAY_MODE_COLOR_COUNT` returns `4` for the three multicolor names and `0`
+for the two normal character names.
+
+`VIC_CELL_MULTICOLOR_20X12` fills the screen with characters `$10` to `$FF`,
+running down each column, so each cell has its own 8x16 pixel pattern. The
+patterns live at `$1100` to `$1FFF` and the cell colors at `$9400`. The mode
+takes `$1000` to `$1FFF`, so it needs `vic20.8k` or larger with the program
+starting above it, for example with `@OPTION START_CODE $2000`. Otherwise
+`DISPLAY` and `DISPLAY_HAS_MODE` return `0` for it. Loading a MINIPAINT image
+also selects it.
 
 Changing modes does not clear the screen. Call `CLS` to clear it. Switching
 to a multicolor mode marks the screen cells as multicolor. Switching to
@@ -118,6 +134,30 @@ either normal character name returns them to normal character color.
 The VIC-20 has no bitmap display mode. `PLOT`, `POINT`, and mixed text and
 bitmap displays are not available. Graphics use cells, tiles, custom
 characters, or software sprites.
+
+## Scrolling
+
+Pixel scrolling uses a 16x16 cell view in `CELL`, `CELL_MULTICOLOR`,
+`VIC_TEXT`, and `VIC_CELL_MULTICOLOR`. It requires a RAM program on
+`vic20.16k`, `vic20.24k`, or `vic20.32k`. Use `@OPTION START_CODE $2000`
+to leave the display memory free.
+
+`SCROLL_BEGIN SCROLL_AXIS_BOTH` starts scrolling. Use `SCROLL_AXIS_X` or
+`SCROLL_AXIS_Y` for one axis. The backing buffer is 17x17 cells, with an
+extra row and column for incoming content. `SCROLL_MOVE dx, dy` accepts
+native pixel distances, including one pixel. In multicolor mode one
+horizontal pixel spans two normal dots. Move one axis and cross at most
+one cell boundary per call.
+
+Fill the returned edge with `SCROLL_CELL_PUTC` or `SCROLL_CELL_COLUMN`,
+then call `SCROLL_PRESENT`. The four argument `SCROLL_CELL_PUTC` sets
+the cell's foreground color; the three argument form uses the current
+text color. Cell colors move at cell boundaries.
+
+Scrolling renders characters in assembly and can take several frames
+per update. It reserves `$1000-$17FF` and `$1E00-$1FFF`, plus roughly
+5 KB of working RAM. `SCROLL_CLOSE` restores the normal screen layout
+and places the scrolled cells at its top left.
 
 ## Colors
 
@@ -202,6 +242,8 @@ mixed case; `{UPPER}` selects uppercase and graphics. These controls
 affect the whole screen. Returning to BASIC keeps that selection.
 
 The `cbm_basic_vic20` dialect also maps `~` to `$FF` for VICE petcat listings.
+
+See [CBM text escapes](CBM_TEXT.md) for named controls, colors, and graphics.
 
 Use `{$NN}` for an exact byte value. The following named escapes cover common
 screen controls:
@@ -358,6 +400,10 @@ Commodore BASIC listings often use POKEs to locations 51/52 and 55/56 to
 reserve memory. The dialect recognizes fixed values and reserves the matching
 top of RAM. Calculated or incomplete values produce a warning requesting an
 explicit `@OPTION RAM_TOP $xxxx`.
+
+A program that continues past reserved memory produces a file that also
+covers that memory, and the build warns. Anything loaded there before the
+program is overwritten.
 
 Use `RAND(N)` for a portable bounded integer. Compatibility `RND` follows the
 dialect's Commodore behavior.

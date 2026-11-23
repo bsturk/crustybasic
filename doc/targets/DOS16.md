@@ -91,6 +91,11 @@ Programs start in `CONSOLE`, using normal DOS text output.
 Clearing, positioning, and cursor visibility use BIOS text services.
 Cell display selects BIOS mode 3, 80x25 text with 16 colors.
 
+In bitmap modes, `PRINT`, `PRINT_CHAR`, and text clearing use the active
+drawing surface and the `COLOR` pair. Buffered text appears at `GFX_SWAP`
+and stays in the background when sprites move. Text uses the BIOS font
+and character height for the selected mode.
+
 | Target | Cell color | Cell attributes |
 | --- | --- | --- |
 | `dos16` | Yes | Yes |
@@ -100,8 +105,21 @@ background. `INVERSE` shows a cell with its colors swapped and `NORMAL`
 puts them back. `CELL_COLORS FG, BG` fills the screen and becomes the
 `COLOR` pair that `PRINT` uses.
 
+Cell storage is allocated in DOS memory for the active screen and
+released when the display mode changes. Allocation failure exits with
+code 8.
+
 The shared color constants use the DOS/BIOS 0 through 15 palette.
 `ORANGE` maps to `BROWN`, and `GRAY` maps to `LIGHT_GRAY`.
+
+The charset API manages 256 character shapes, with characters 128 through
+255 available for custom artwork. Read `CHARSET_BYTES_PER_ENTRY` after
+selecting a display. Bitmap glyphs use eight bytes; text glyphs use the
+BIOS character height.
+
+Text font changes update existing characters. Redraw bitmap text after
+changing its glyphs. Graphics `PRINT` scales custom glyphs to its character
+height. Selecting a display restores its normal charset.
 
 ## Graphics
 
@@ -136,8 +154,9 @@ maps the 16 pixel colors to the 64 EGA colors.
 in mode 13h or the 16 pixel colors in modes 10h and 12h.
 Channels range from 0 through 255 and are reduced
 to six bits for the VGA DAC. Existing pixels using that index change
-color too. The standard color overload and `PALETTE_RESET` are not
-supported; selecting the display mode again restores its palette.
+color too. `PALETTE_SET index, RED` uses a standard color.
+`PALETTE_RESET` restores the display mode's palette without changing
+pixels, drawing colors, or active buffers.
 
 `GFX_BUFFERING` is `GFX_BUFFERING_COPY`. In `BITMAP_HIRES`,
 `VGA_640X480_16`, and `EGA_640X350_16`, the first `GFX_SWAP` after
@@ -153,6 +172,43 @@ The buffer uses DOS memory: 64000 bytes for 320x200, 112000 bytes for
 640x350, or 153600 bytes for 640x480. If DOS cannot allocate it, the
 program exits with code 8.
 
+`GFX_BUFFER_INIT` requests the buffer explicitly and returns `TRUE` on
+success or `FALSE` when allocation fails. A failed request leaves drawing
+direct, so the program can continue without a buffer or select another mode.
+
+## Scrolling
+
+`SCROLL_SETUP SCROLL_TYPE_SW` selects scrolling in every display mode.
+After `SCROLL_BEGIN`, both scroll granularities are 1: `SCROLL_MOVE`
+accepts signed pixel amounts on either enabled axis. Positive X moves
+content left; positive Y moves it up. Move one axis and cross at most
+one cell boundary per call.
+
+Text scrolling uses VGA panning and preserves character colors and
+attributes. Cell dimensions follow the active font, including 80x50
+text. Graphics scrolling moves every color plane, preserving all 16 or
+256 pixel colors, and uses 8x8 cells.
+
+Each enabled axis reserves one backing cell for incoming content.
+Use `SCROLL_BUFFER_COLUMNS`, `SCROLL_BUFFER_ROWS`,
+`SCROLL_VIEW_COLUMNS`, and `SCROLL_VIEW_ROWS` for the active dimensions.
+Fill the edge returned by `SCROLL_MOVE` with `SCROLL_CELL_PUTC` or
+`SCROLL_CELL_COLUMN`, then call `SCROLL_PRESENT`. The four argument
+`SCROLL_CELL_PUTC` selects the foreground color; the background comes
+from `COLOR`.
+
+`SCROLL_BEGIN` retains the current picture. Graphics drawing continues
+in the retained buffer; use `SCROLL_PRESENT` to show the scrolled view.
+Text writes to the scrolling surface use `SCROLL_CELL_PUTC` and
+`SCROLL_CELL_COLUMN`. `SCROLL_CLOSE` restores the full view and text
+cursor settings. Graphics buffering remains active until the next
+`DISPLAY` call.
+
+Text scrolling requires VGA and uses about 3, 6, or 12 KB of DOS
+memory. Graphics uses the drawing buffer sizes listed above. Selecting
+another display mode releases the buffer. Allocation failure exits with
+code 8.
+
 ## Images
 
 Native image display supports:
@@ -161,23 +217,32 @@ Native image display supports:
 | --- | --- | --- |
 | `dos16` | `IMAGE_FMT_CGA4` | Indexed PNG/PCX, CGA mode 4 BSAVE, or raw 16384 byte dumps |
 | `dos16` | `IMAGE_FMT_VGA256` | Indexed PNG/PCX, 320x200 with 256 colors |
+| `dos16` | `IMAGE_FMT_EGA16` | Indexed PNG/PCX, 640x350 with 16 colors |
+| `dos16` | `IMAGE_FMT_VGA16` | Indexed PNG/PCX, 640x480 with 16 colors |
 
 Select VGA images with `@INCLUDE_IMAGE PICTURE "picture.pcx" AS vga256`.
 Use `AS cga4` for CGA; it is also the default when `AS` is omitted.
-Sources up to 320x200 are centered in the screen. PNG input uses 8 bit
-indexed color. VGA images preserve the source palette, with RGB channels
-reduced to six bits, and select mode 13h when displayed.
+Select planar images with `AS ega16` or `AS vga16`. Smaller sources are
+centered in the selected display. PNG input uses 8 bit indexed color.
+VGA images preserve the source palette, with RGB channels reduced to six
+bits. EGA colors are rounded to its palette of 64 colors. Each format selects
+its display mode when loaded.
 
 `IMAGE_FMT_CGA4` uses B800 dump order. On generic DOS the aux byte is
 the raw CGA color select value for port `3D9h`.
 
-Images are linked into the program rather than loaded from DOS files at
-runtime. Converted images use RLE8 when it makes them smaller. VGA data
-contains 64000 pixel bytes and 768 palette bytes before compression.
-The image and program share the DOS executable's 64 KB address space.
+`IMAGE_LOAD(path$)` reads converted native image files from DOS storage.
+Raw and RLE8 packed images stream directly to video memory. Converted
+images use RLE8 when it makes them smaller. VGA256 data contains 64000
+pixel bytes and 768 palette bytes before compression. Planar images store
+four planes followed by 16 EGA palette bytes or 48 VGA palette bytes.
 
-Unpacked CGA images support wipes and slides in all four directions, fade in
-and out, and dissolves with 1, 2, 4, or 8 pixel square blocks. Wipes and
+Embedded images share the DOS executable's 64 KB address space.
+
+CGA images, packed or unpacked, support wipes and slides in all four
+directions, splits, fade in and out, and dissolves with 1, 2, 4, or 8
+pixel square blocks. Packed effects use a temporary 16 KB DOS memory
+block and return 0 when DOS cannot supply it. Wipes and
 slides move in steps of four pixels horizontally or one pixel vertically.
 CGA fades use four levels of pixel density. Fade out and dissolve out work
 on the current CGA screen, including images loaded with RLE8 packing.
@@ -199,12 +264,25 @@ The DOS16 target does not have hardware sprites. Sprites are backed by
 | Size | Runtime `w * 8` by `h * 8` pixels |
 | Data bytes | 8 per tile |
 | Surface | Pixel |
-| Collision | Not supported |
-| Flip, stretch, priority, palette | Not supported |
+| Collision | Sprite masks and background scenery |
+| Flip | Horizontal and vertical, per sprite |
+| Expansion | Double width and height independently |
+| Priority | In front of or behind background pixels |
 
 On `dos16`, sprites compose into off screen buffers when page flip
 support is enabled, then copy touched rectangles after the frame wait.
 `SPRITE_DATA_TILES` stores tiles left to right and then top to bottom.
+`SPRITE_FLIP_X` and `SPRITE_FLIP_Y` mirror the whole shape without changing
+its source data. `SPRITE_EXPAND` doubles either or both dimensions.
+Sprites are clipped at the right and bottom edges.
+`SPRITE_PRIORITY` with a true flag leaves foreground scenery visible. A
+background pixel matching the current `COLOR` background lets the sprite
+show through.
+
+`SPRITE_HIT` reports overlapping sprite mask pixels. `SPRITE_HIT_BG`
+checks scenery against the current background color. Both queries use the
+current recorded sprite settings and respect masks, flips, expansion,
+and screen edges.
 
 ## Tile
 
@@ -229,11 +307,16 @@ runtime. Tile kernels are not available on these targets.
 | Paddle range | 0 through 255 |
 | Keypad ports | 0 |
 | Keypad `INPUT` | No |
-| Mouse buttons | 0 |
+| Mouse buttons | Up to 3 through a DOS mouse driver |
 
 Keyboard input uses BIOS `int 16h` and is nonblocking. Lowercase
 letters are normalized to uppercase. Extended arrow keys return the
 portable cursor bytes.
+
+Mouse input uses a Microsoft compatible DOS driver. `MOUSE_X`, `MOUSE_Y`,
+and `MOUSE_POSITION` use graphics pixels, including 320x200 modes.
+`MOUSE_STATE` uses bits 0, 1, and 2 for left, right, and middle buttons.
+`MOUSE_SHOW` and `MOUSE_HIDE` control the pointer.
 
 Joystick and paddle input use BIOS joystick services. Digital joystick
 reads threshold the analog axes with the default deadzone value of 48,
@@ -249,13 +332,13 @@ Sound supports one PC speaker voice, simple tones, and note frequency
 lookup. Envelope, filter, and pulse width controls are not supported on
 this target.
 
-`BEEP`, `TONE`, and 2 argument `BEEP` durations count BIOS ticks, about
-55 ms each. The period is the speaker timer divisor, 1193180 divided by
+`TONE` and 2 argument `BEEP` durations count BIOS ticks, about 55 ms
+each. `BEEP` rounds its milliseconds to whole ticks. The period is the speaker timer divisor, 1193180 divided by
 the frequency in Hz.
 
 QBasic `PLAY` supports notes, rests, octaves, tempo, note lengths, dotted
-notes, and articulation. `MB` plays in the background; `MF` waits for the
-music to finish. Note timing follows the BIOS timer, about 55 ms per tick.
+notes, and articulation. `MB` queues `PLAY` and QBasic `SOUND` in the
+background; `MF` waits for playback to finish. Note timing follows the BIOS timer, about 55 ms per tick.
 
 ## Timing
 
@@ -270,7 +353,21 @@ CPU speed.
 ## Files
 
 The DOS file provider uses DOS `int 21h` file handles. Read, write,
-append, and update modes are supported. Directory mode and command
-channels are not supported. Native opens use `AUX1` as the mode value
-and ignore `AUX2`. File channels run from 0 to 15, and up to 15 files
+append, update, and directory modes are supported. Directory paths use
+DOS wildcards; read names with `FILE_READ_LINE` until `FILE_EOF`. Each
+channel maintains its own listing. Native opens use `AUX1` as the mode
+value and ignore `AUX2`. File channels run from 0 to 15, and up to 15 files
 can be open at once when `FILES=` in `CONFIG.SYS` allows it.
+
+`FILE_SEEK` sets an absolute byte offset. `FILE_POSITION` returns the
+zero based offset of the next byte the program will read as `U32`.
+
+`FILE_COMMAND` reports its result through `FILE_STATUS(channel)` and
+ignores `AUX1` and `AUX2`:
+
+| Command | Path |
+| --- | --- |
+| `FILE_COMMAND_DELETE` | File to delete |
+| `FILE_COMMAND_RENAME` | Old and new paths separated by a pipe character |
+| `FILE_COMMAND_MKDIR` | Directory to create |
+| `FILE_COMMAND_RMDIR` | Empty directory to remove |

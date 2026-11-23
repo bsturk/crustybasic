@@ -410,6 +410,10 @@ number of elements. `ADDR(A(I))` returns the address of one element. For
 a string array, use `ADDR(A(I))` for the element you need rather than
 calculating its address from another element.
 
+On some targets, `optimize=speed` can reserve extra row space in integer
+arrays to speed up indexing. Declared bounds and `LEN` stay the same.
+Arrays used through addresses keep their declared layout.
+
 `U1` scalars and arrays are packed from bit 0 upward. Up to eight scalar
 declarations with the same owner share one byte, so `A, B, C AS U1`
 takes one byte. A `U1` array takes one byte for every eight elements:
@@ -699,7 +703,9 @@ and a `CONST` array declared without a value is filled by one. See
 [@ASYNC]
 [@ASYNC_INSTALL param]
 [@ASYNC_UNINSTALL name[, name]]
+[@RESERVES start TO end]
 [@COMPTIME]
+[@COLD]
 [@WARNING "message"]
 PROC name [([IN|OUT|INOUT] param [AS type][, ...])] [AS type]
     [RETURN [expr]]
@@ -748,8 +754,12 @@ Rules:
   `()` to read and write memory at that address. Each index moves by the
   size of the element type; `U1 ADDR` indexes bits packed from bit 0.
   Indexed `ADDR` parameters support `U1`, `U8`, `I8`, `U16`,
-  and `I16` elements. The parameter is also a normal
-  address, so `PEEK`, `POKE`, and other memory calls can use it directly.
+  `I16`, and `REAL` elements. `REAL` uses the selected format's size.
+  The parameter is also a normal address, so `PEEK`, `POKE`, and other
+  memory calls can use it directly.
+- `LEN(P)` on a `type ADDR` parameter gives the element count of a whole
+  array passed as `ADDR NAME`, including through another `PROC` that
+  passes `P` on unchanged. Any other address gives 0.
 - Assigning to a normal parameter does not affect the caller.
 - `OUT` parameters require an assignable variable argument with the
   same type. The final value is copied to that variable when the `PROC`
@@ -764,6 +774,10 @@ Rules:
   so. A `PROC` still cannot be started by a handler while an earlier call
   is running.
 - A typed `PROC` can be used anywhere its return type is valid.
+- `@RESERVES $0090 TO $00FF` keeps the named bytes for your program,
+  including both endpoints. The reservation applies whenever the program
+  uses that `PROC`. Put it above `PROC MAIN` to reserve the range for
+  the whole program. Repeat it for separate ranges.
 - Interrupt callbacks take no arguments. Install them using `ADDR(name)`
   and keep their work short and simple.
 - `@PERIODIC` runs after each `FRAME_WAIT`; `@PERIODIC IRQ` runs at each
@@ -782,6 +796,11 @@ Rules:
   overload.
 - `@COMPTIME` lets the compiler run the `PROC` itself when every
   argument is a constant. See [Compile time PROCs](#compile-time-procs).
+- `@COLD` marks a `PROC` that runs rarely, such as setup or title screen
+  code. With `optimize=speed`, the compiler keeps calls made from it as
+  calls and does not copy it into its callers. On some targets it also
+  shares repeated code inside it, as `optimize=size` does. This keeps
+  speed builds smaller where speed does not matter.
 
 ```basic
 BUF[4] AS U8
@@ -1478,6 +1497,8 @@ PRINT
 added space. A comma adds one space. `PRINT` adds a newline unless the
 statement ends with `;` or `,`.
 
+`optimize=size` can share repeated phrases in printed text to save space.
+
 `?` at the start of a statement is short for `PRINT`. Attached to the end
 of a name it is the `DYNAMIC STRING` suffix instead, so `? TEXT?` prints
 a dynamic string.
@@ -1792,9 +1813,11 @@ Rules:
 Directives start with `@`. They set compile options, include files, or
 choose which source is used.
 
-A trailing `REM` starts a comment on directive lines except `@REWRITE`,
-`@REWRITE_EXPR`, and `@REWRITE_BLOCK`, where it is part of the rewrite.
-`REM` inside a quoted string remains part of the string.
+A trailing `'` or `REM` starts a comment on directive lines except
+`@REWRITE`, `@REWRITE_EXPR`, and `@REWRITE_BLOCK`, where it is part of the
+rewrite. Inside a quoted string both remain part of the string, and a
+single quoted value such as `'c64'` in `@IF TARGET = 'c64' THEN` is
+still a string.
 
 ### @OPTION
 
@@ -1925,7 +1948,9 @@ cartridge or ROM images. `TARGET` is the current target name. Use it
 when several systems share the same target.
 
 `START_CODE` and `RAM_TOP` bracket the memory a program has, so a
-module that needs a certain amount of room can say so:
+module that needs a certain amount of room can say so. `OPTION("START_CODE")`
+gives the start the program actually uses, including an `@OPTION START_CODE`
+setting:
 
 ```basic
 @REQUIRES RAM_TOP > $1F00 @ELSE "this needs more RAM than the machine has"
@@ -2013,6 +2038,10 @@ Set options with `@OPTION` or `--set` on the command line. Some are
 available in only one of those places. Run `crustybasic options` to see
 the accepted forms and values.
 
+Options specific to one target use its name as a prefix. They are ignored
+when compiling for another target, and `OPTION_SET()` returns `FALSE` for
+them. Shared options keep their common names.
+
 ```basic
 @OPTION ARRAY_BASE 0
 @OPTION NUMERIC_MODE INTEGER
@@ -2082,6 +2111,9 @@ only when you want different numeric behavior:
 do not change a value's type. `NUMERIC_MODE`, suffixes, and `AS`
 declarations do that.
 
+Setting `NUMERIC_MODE INTEGER` also selects `MATH_INTEGER BUILTIN`
+unless `MATH_INTEGER` is set.
+
 | Value     | Meaning |
 | --------- | ------- |
 | `AUTO`    | Let the target choose. This is the default when the option is not set. |
@@ -2089,12 +2121,14 @@ declarations do that.
 | `BUILTIN` | Use crustyBASIC's own math. Error if unavailable. |
 
 `BUILTIN_REAL` chooses the `REAL` format supplied by crustyBASIC.
+Setting it also selects `MATH_REAL BUILTIN` unless `MATH_REAL` is set.
 `AUTO` uses the format preferred by the target. `Q16_16` keeps more
 digits after the decimal point, while `Q24_8` allows larger whole
-numbers. Both use four bytes.
+numbers. Both use four bytes. For these formats, `EXP` returns zero when
+its result is too small, and the largest positive value when it is too large.
 
 `BINARY64` uses eight bytes. It keeps about 15 significant digits and
-has a range of roughly 1e-308 to 1e308. It also makes `EXP` available.
+has a range of roughly 1e-308 to 1e308.
 It is much slower and twice the size of the four byte formats, and some
 targets do not support it. Very small results become zero, and results
 outside its range stop at the largest value it can hold. It does not
@@ -2147,6 +2181,13 @@ Repeat `@OPTION MEMORY_REGION`, or add more names to the config array,
 to enable several regions. A region marked as automatic needs no option
 or config entry.
 
+Turn off an automatic region the program needs for itself with
+`@OPTION MEMORY_REGION_OFF name`, or in the config file:
+
+```toml
+memory-regions-off = ["name"]
+```
+
 ## Dialects
 
 Dialects help compile programs written for another BASIC. Choose one
@@ -2183,6 +2224,8 @@ Available dialects:
 | `applesoft_basic` | Applesoft BASIC listings for Apple II. |
 | `integer_basic` | Apple Integer BASIC listings for Apple II. |
 | `atari_basic` | Atari BASIC listings for Atari 8 bit systems. |
+| `st_basic` | Atari ST BASIC listings. |
+| `gfa_basic` | GFA BASIC 3.x listings. |
 | `basic_xl` | BASIC XL listings for Atari 8 bit systems. |
 | `cbm_basic_vic20` | Commodore BASIC V2 listings for VIC-20. |
 | `cbm_basic_v2` | Commodore BASIC V2 listings for C64. |
@@ -2191,6 +2234,7 @@ Available dialects:
 | `color_basic` | TRS-80 Color BASIC listings for CoCo. |
 | `extended_color_basic` | Extended Color BASIC listings for CoCo. |
 | `sinclair_basic` | Sinclair BASIC listings for ZX Spectrum. |
+| `sam_basic` | SAM BASIC listings. |
 | `zx81_basic` | Sinclair BASIC listings for ZX81. |
 | `qbasic` | QBasic style listings. Select a target or system explicitly. |
 | `gwbasic` | GW-BASIC listings for 16 bit DOS. |

@@ -57,6 +57,7 @@ See the [API reference](doc/API.md) and [target documentation](doc/targets/).
   - 5200
   - 2600
   - 7800
+  - 520/1040 ST
 - Commodore
   - 64, 64 Ultimate
   - 128
@@ -65,12 +66,14 @@ See the [API reference](doc/API.md) and [target documentation](doc/targets/).
   - Amiga 500, 600, 1200
 - Tandy/Radio Shack
   - CoCo 1, 2, 3
-  - 1000 HX/SX/etc.
+  - 1000 HX/SX/etc
 - PC
   - MS-DOS 16 bit
   - IBM PCjr
-  - Windows 64 bit graphics and console (`win64`, Win Vista...Win 11)
-  - Linux x64 console (`linux64`)
+  - Windows 64 bit (graphics and console)
+  - Linux x64 (console)
+- Miles Gordon Technology
+  - SAM Coupe
 - Nintendo
   - NES
 - Sinclair
@@ -85,7 +88,10 @@ To download the latest compiled binaries, visit the **[Releases page](https://gi
 
 ## Downloading the assembler
 
-Building programs requires the target's assembler; see [Assemblers](doc/USAGE.md#assemblers) in the usage guide.
+Building programs requires the assembler for your target. The Atari ST uses
+`vasmm68k_mot`, and the SAM Coupe uses `vasmz80_oldstyle`. Both go in the
+release bundle's `tools/assemblers/vasm/<platform>/` folder. See the
+[assembler downloads and platform folders](doc/USAGE.md#assemblers).
 
 ## Quick start
 
@@ -166,7 +172,7 @@ Screenshots are in the [screenshots](https://github.com/bsturk/crustybasic/tree/
 
 ## Community
 
-- [Discord](https://discord.gg/JbYXZZur) - join the discussions, get access to betas
+- [Discord](https://discord.gg/c9Fd3KpjM) - join the discussions, get access to betas
 - [itch.io](https://telengard.itch.io/crustybasic) - the main crustyBASIC page
 
 ## Submitting bugs

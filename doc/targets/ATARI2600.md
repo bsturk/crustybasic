@@ -41,26 +41,29 @@ its own frames.
 
 ```basic
 @OPTION TARGET atari2600
-@OPTION A2600_PLAYFIELD_COLUMNS 20
-@OPTION A2600_PLAYFIELD_ROWS 16
-@OPTION A2600_PLAYFIELD_RAM_ROWS 16
+@OPTION ATARI2600_PLAYFIELD_COLUMNS 20
+@OPTION ATARI2600_PLAYFIELD_ROWS 16
+@OPTION ATARI2600_PLAYFIELD_RAM_ROWS 16
 @OPTION SPRITE_COUNT 2
 ```
 
 | Option | Values | Default |
 | --- | --- | --- |
-| `A2600_PLAYFIELD_COLUMNS` | `20`, `40` | `20` |
+| `ATARI2600_PLAYFIELD_COLUMNS` | `20`, `32`, `40` | `20` |
 | `SPRITE_COUNT` | `0`, `2`, `4`, `6` | `0` |
-| `A2600_CUSTOM_KERNEL` | `TRUE`, `FALSE` | `FALSE` |
+| `ATARI2600_CUSTOM_KERNEL` | `TRUE`, `FALSE` | `FALSE` |
+| `ATARI2600_SCROLL_RENDERER` | `SCROLL_RENDERER_NATIVE`, `SCROLL_RENDERER_FINE` | `SCROLL_RENDERER_NATIVE` |
 
 | Columns | Sprites | Kernel |
 | --- | --- | --- |
 | 20 | 0 or 2 | Playfield kernel: rows in RAM or a static playfield, two pixel sprites, missiles, ball, information rows, per row colors, timed paddles |
+| 32 | 0 or 2 | ROM playfield with independent halves, two sprites, per row playfield colors |
 | 40 | 0 | Wide kernel: 40 unique cells per row, a RAM row window with ROM fill rows, the ball, and row sized playfield players |
 | 20 | 4 or 6 | Multisprite kernel: a static playfield and reused sprites |
-| any | 0 | `A2600_CUSTOM_KERNEL TRUE`: the program draws its own frames |
+| any | 0 | `ATARI2600_CUSTOM_KERNEL TRUE`: the program draws its own frames |
 
-Everything else is an option on the chosen kernel. Combinations the
+The scrolling renderer selects a fine scrolling variant of the playfield
+or wide kernel. Other settings are options on the chosen kernel. Combinations the
 kernel cannot draw fail during preprocessing with a message that names
 the options. `KERNEL_PROFILE` reports the chosen kernel for `@IF` blocks:
 `KERNEL_NONE`, `KERNEL_PLAYFIELD`, `KERNEL_WIDE`, or `KERNEL_MULTISPRITE`.
@@ -69,7 +72,7 @@ With no display options the program gets the playfield kernel with a
 static playfield: `PLAYFIELD PF0, PF1, PF2` sets bits that repeat on every
 row, and missiles, the ball, and collision reads are available. TILE,
 playfield text, images, and CELL need playfield rows in RAM. Set
-`A2600_PLAYFIELD_RAM_ROWS` to use them; a program that calls them without
+`ATARI2600_PLAYFIELD_RAM_ROWS` to use them; a program that calls them without
 RAM rows fails to assemble on the symbol
 `TILE_NEEDS_A2600_PLAYFIELD_RAM_ROWS`.
 
@@ -79,10 +82,10 @@ Both playfield kernels split the 192 visible scanlines into logical rows.
 
 | Option | Meaning | Default |
 | --- | --- | --- |
-| `A2600_PLAYFIELD_ROWS` | Logical row count | `8` |
-| `A2600_PLAYFIELD_ROW_SCANLINES` | Lines per row | `192 \ ROWS`, always `8` with 8 pixel cells |
-| `A2600_PLAYFIELD_RAM_ROWS` | Rows kept in RAM | `0` on 20 columns, every row on 40 |
-| `A2600_PLAYFIELD_RAM_ROW_FIRST` | First RAM row, 40 columns only | `0` |
+| `ATARI2600_PLAYFIELD_ROWS` | Logical row count | `8` |
+| `ATARI2600_PLAYFIELD_ROW_SCANLINES` | Lines per row | `192 \ ROWS`, always `8` with 8 pixel cells |
+| `ATARI2600_PLAYFIELD_RAM_ROWS` | Rows kept in RAM | `0` on 20 or 32 columns, every row on 40 |
+| `ATARI2600_PLAYFIELD_RAM_ROW_FIRST` | First RAM row, 40 columns only | `0` |
 
 Any row count works while rows times lines stays at or under 192. A
 shorter picture is centered with blank lines above and below. Rows are
@@ -97,9 +100,9 @@ those. The `PLAYFIELD_ROWS`, `PLAYFIELD_ROW_SCANLINES`,
 
 ## The 20 Column Kernel
 
-Rows `0` to `A2600_PLAYFIELD_RAM_ROWS - 1` keep three playfield bytes
+Rows `0` to `ATARI2600_PLAYFIELD_RAM_ROWS - 1` keep three playfield bytes
 each in RAM and are the TILE surface. Rows outside that window draw the
-static `PLAYFIELD` bytes. `A2600_PLAYFIELD_LAYOUT` chooses how the right
+static `PLAYFIELD` bytes. `ATARI2600_PLAYFIELD_LAYOUT` chooses how the right
 half of every row is drawn:
 
 | Layout | Surface |
@@ -109,8 +112,8 @@ half of every row is drawn:
 
 ```basic
 @OPTION TARGET atari2600
-@OPTION A2600_PLAYFIELD_ROWS 16
-@OPTION A2600_PLAYFIELD_RAM_ROWS 16
+@OPTION ATARI2600_PLAYFIELD_ROWS 16
+@OPTION ATARI2600_PLAYFIELD_RAM_ROWS 16
 @OPTION SPRITE_COUNT 2
 
 PROC MAIN
@@ -128,7 +131,7 @@ Two sprites draw with the rows: 8, 16, or 32 line shapes positioned to
 the pixel, see [Portable Sprites](#portable-sprites). Missiles and the
 ball are row objects positioned to the pixel with `MISSILE0_X X`,
 `MISSILE1_X X`, and `BALL_X X`, and shown on whole rows.
-`A2600_OBJECT_ROWS` picks how the rows are chosen for all three:
+`ATARI2600_OBJECT_ROWS` picks how the rows are chosen for all three:
 
 | Mode | Calls | Shows on |
 | --- | --- | --- |
@@ -143,24 +146,56 @@ byte per object.
 The objects change on the second to fourth line of a row, so they draw
 from the row's middle lines on.
 
+`ATARI2600_MISSILE_HEIGHT N` places the missiles by picture line
+instead. `MISSILE0_Y Y` shows missile 0 from line `Y`, `N` lines tall,
+and `MISSILE0_HIDE` hides it; missile 1 has the same calls. Missile 0
+changes on lines with the parity of a row's first line and missile 1 on
+the other lines, so each moves in two line steps. This needs an even
+`ATARI2600_PLAYFIELD_ROW_SCANLINES`, single colors, fixed row heights,
+standard input, and `ATARI2600_BALL FALSE`, and adds a table of
+384 + `N` bytes to ROM.
+
 Per row colors and heights are RAM tables filled at run time:
 
 | Option | Calls |
 | --- | --- |
-| `A2600_PLAYFIELD_COLORS PLAYFIELD_COLORS_PER_ROW` | `PLAYFIELD_ROW_COLOR ROW, C` |
-| `A2600_BACKGROUND_COLORS BACKGROUND_COLORS_PER_ROW` | `BACKGROUND_ROW_COLOR ROW, C` |
-| `A2600_PLAYER_COLORS PLAYER_COLORS_PLAYER1_PER_ROW` or `PLAYER_COLORS_PER_ROW` | `PLAYER1_ROW_COLOR ROW, C`, `PLAYER0_ROW_COLOR ROW, C` |
-| `A2600_PLAYFIELD_HEIGHTS PLAYFIELD_HEIGHTS_PER_ROW` | `PLAYFIELD_ROW_HEIGHT ROW, H` |
+| `ATARI2600_PLAYFIELD_COLORS PLAYFIELD_COLORS_PER_ROW` | `PLAYFIELD_ROW_COLOR ROW, C` |
+| `ATARI2600_BACKGROUND_COLORS BACKGROUND_COLORS_PER_ROW` | `BACKGROUND_ROW_COLOR ROW, C` |
+| `ATARI2600_PLAYER_COLORS PLAYER_COLORS_PLAYER1_PER_ROW` or `PLAYER_COLORS_PER_ROW` | `PLAYER1_ROW_COLOR ROW, C`, `PLAYER0_ROW_COLOR ROW, C` |
+| `ATARI2600_PLAYFIELD_HEIGHTS PLAYFIELD_HEIGHTS_PER_ROW` | `PLAYFIELD_ROW_HEIGHT ROW, H` |
 
 With per row heights, make the row heights total 192 scanlines. Rows
 left unset use the default height, and every row needs at least the
-minimum height `A2600_PLAYFIELD_ROW_SCANLINES` accepts. Per row
+minimum height `ATARI2600_PLAYFIELD_ROW_SCANLINES` accepts. Per row
 colors next to two sprites need the rows to fill the 192 lines exactly.
+
+## The 32 Column Kernel
+
+`ATARI2600_PLAYFIELD_COLUMNS 32` draws 32 independent cells, each four pixels
+wide, with a 16 pixel border on each side. Each row starts with one blank
+playfield scanline while the sprites continue drawing.
+
+Supply one bitmap per row in a `CONST PLAYFIELD_ROW_DATA` array of `U32`
+values with `ALIGN 256`. Bit 31 is the leftmost cell. Visual binary
+literals can put all 32 cells on one line. The bitmaps stay in cartridge
+ROM. The renderer uses two RAM bytes per row for bit order conversion.
+
+Use even row heights of at least four scanlines, totaling 192 scanlines.
+For twelve rows, set `ATARI2600_PLAYFIELD_ROWS 12` and
+`ATARI2600_PLAYFIELD_ROW_SCANLINES 16`.
+
+`SPRITE_COUNT 2` enables the two hardware players through the usual
+SPRITE calls. Each shape byte draws on two scanlines, and Y positions
+advance in two scanline steps. `SPRITE_HEIGHT` reports the displayed
+height; `SPRITE_DATA_BYTES` reports the number of shape bytes.
+
+Select `ATARI2600_PLAYFIELD_COLORS PLAYFIELD_COLORS_PER_ROW` and use
+`PLAYFIELD_ROW_COLOR ROW, C` to color each row.
 
 ## The 40 Column Kernel
 
-`A2600_PLAYFIELD_COLUMNS 40` draws 40 unique cells per row with no
-sprites. `A2600_PLAYFIELD_CELL_PIXELS` picks the cell width:
+`ATARI2600_PLAYFIELD_COLUMNS 40` draws 40 unique cells per row with no
+sprites. `ATARI2600_PLAYFIELD_CELL_PIXELS` picks the cell width:
 
 | Cells | Rows | Row storage | Objects |
 | --- | --- | --- | --- |
@@ -169,15 +204,15 @@ sprites. `A2600_PLAYFIELD_CELL_PIXELS` picks the cell width:
 
 With 4 pixel cells every row starts with one setup line that shows only
 the background color, so a 12 line row shows 11 lines of cells. The RAM
-row window can sit anywhere: `A2600_PLAYFIELD_RAM_ROW_FIRST F` and
-`A2600_PLAYFIELD_RAM_ROWS K` keep rows `F` to `F + K - 1` in RAM. Rows
+row window can sit anywhere: `ATARI2600_PLAYFIELD_RAM_ROW_FIRST F` and
+`ATARI2600_PLAYFIELD_RAM_ROWS K` keep rows `F` to `F + K - 1` in RAM. Rows
 above and below the window draw fixed ROM rows when
-`A2600_PLAYFIELD_FILL_ROW_ABOVE` or `A2600_PLAYFIELD_FILL_ROW_BELOW` is
+`ATARI2600_PLAYFIELD_FILL_ROW_ABOVE` or `ATARI2600_PLAYFIELD_FILL_ROW_BELOW` is
 `TRUE`, and nothing otherwise. The program then declares the matching
 six byte `CONST` array in register order:
 
 ```basic
-@OPTION A2600_PLAYFIELD_FILL_ROW_ABOVE TRUE
+@OPTION ATARI2600_PLAYFIELD_FILL_ROW_ABOVE TRUE
 
 ' PF0, PF1, PF2 for the left half, then the right half. PF0 draws its
 ' high nibble with bit 4 at the left, PF1 draws bit 7 first, and PF2
@@ -185,7 +220,7 @@ six byte `CONST` array in register order:
 CONST PLAYFIELD_FILL_ROW_ABOVE(5) AS U8 = $F0, $FF, $FF, $F0, $FF, $7F
 ```
 
-`A2600_PLAYFIELD_ROW_COLORS TRUE` colors every row from a `CONST`
+`ATARI2600_PLAYFIELD_ROW_COLORS TRUE` colors every row from a `CONST`
 table with one entry per row:
 
 ```basic
@@ -199,8 +234,8 @@ as the 20 column kernel.
 
 Playfield players are the 40 column kernel's moving objects: quad width
 players, 32 pixels wide, positioned to the pixel once per frame and
-drawn on whole rows. `A2600_PLAYFIELD_PLAYERS 1` or `2` enables them,
-and `A2600_PLAYER_ROWS N` sets how many rows a player covers. With 4
+drawn on whole rows. `ATARI2600_PLAYFIELD_PLAYERS 1` or `2` enables them,
+and `ATARI2600_PLAYER_ROWS N` sets how many rows a player covers. With 4
 pixel cells the second player takes a second setup line per row, so
 rows are then at least 3 lines and show two lines less of cells. Draw a
 frame with the players through the frame call instead of `FRAME_WAIT`;
@@ -219,9 +254,9 @@ the player, so `%XXXXXX..` is 24 pixels wide. Set the colors with
 With 8 pixel cells the TILE surface groups two playfield cells into one
 8x8 tile, twenty per row, and `TILE_BEGIN 2, 1` selects it. Fewer than 24
 rows are centered. Row 0 can be a four digit score: set
-`A2600_INFO1 INFO_SCORE` with `A2600_INFO1_ROW 0`, then `INFO1_SET LEFT,
+`ATARI2600_INFO1 INFO_SCORE` with `ATARI2600_INFO1_ROW 0`, then `INFO1_SET LEFT,
 RIGHT`, `INFO1_ADD LEFT, RIGHT`, or `SCORE_SET VALUE`. The score is
-stored in the row's own two bytes. `A2600_SCORE_LAYOUT` splits or
+stored in the row's own two bytes. `ATARI2600_SCORE_LAYOUT` splits or
 centers it.
 
 `TILE_ROW_COPY SOURCE_Y, DEST_Y` copies one complete row on every
@@ -234,16 +269,16 @@ text row:
 
 ```basic
 @OPTION TARGET atari2600
-@OPTION A2600_PLAYFIELD_ROWS 16
+@OPTION ATARI2600_PLAYFIELD_ROWS 16
 @OPTION SPRITE_COUNT 2
 
-@OPTION A2600_INFO1 INFO_SCORE
-@OPTION A2600_INFO1_ROW 0
-@OPTION A2600_INFO2 STATIC_TEXT
-@OPTION A2600_INFO2_ROW 10
-@OPTION A2600_INFO2_TEXT "LIFE"
-@OPTION A2600_SCORE_DIGITS 4
-@OPTION A2600_SCORE_LAYOUT SCORE_LAYOUT_CENTERED
+@OPTION ATARI2600_INFO1 INFO_SCORE
+@OPTION ATARI2600_INFO1_ROW 0
+@OPTION ATARI2600_INFO2 STATIC_TEXT
+@OPTION ATARI2600_INFO2_ROW 10
+@OPTION ATARI2600_INFO2_TEXT "LIFE"
+@OPTION ATARI2600_SCORE_DIGITS 4
+@OPTION ATARI2600_SCORE_LAYOUT SCORE_LAYOUT_CENTERED
 ```
 
 Information rows need:
@@ -251,22 +286,22 @@ Information rows need:
 - 20 columns with zero or two sprites
 - single colors for players, playfield, and background, and fixed row
   heights
-- `A2600_INPUT_MODE INPUT_STANDARD`
+- `ATARI2600_INPUT_MODE INPUT_STANDARD`
 - rows of at least 8 lines, 12 for a six digit score
 - with two slots, either no RAM rows or every row in RAM
 
 Each slot accepts `INFO_NONE`, `INFO_SCORE`, `STATIC_TEXT`, or
-`DYNAMIC_TEXT`. `INFO_NONE` disables the slot. `A2600_INFO1_ROW` and
-`A2600_INFO2_ROW` select zero based logical rows from `0` through
+`DYNAMIC_TEXT`. `INFO_NONE` disables the slot. `ATARI2600_INFO1_ROW` and
+`ATARI2600_INFO2_ROW` select zero based logical rows from `0` through
 `PLAYFIELD_ROWS - 1`. Two enabled slots must use different rows. An
 information row replaces the playfield row at that position and keeps
 the row height; the glyphs use five lines and the rest is blank.
 
-`A2600_SCORE_DIGITS` is the total number of decimal digits across a score
+`ATARI2600_SCORE_DIGITS` is the total number of decimal digits across a score
 row. It accepts `4` or `6` and defaults to `4`. Six means `000` on each
 side. The two values are independent and keep their leading zeroes.
 
-`A2600_SCORE_LAYOUT` controls four digit score placement. The default
+`ATARI2600_SCORE_LAYOUT` controls four digit score placement. The default
 `SCORE_LAYOUT_SPLIT` draws two digits on each side of the screen.
 `SCORE_LAYOUT_CENTERED` draws the four digits together in the center.
 For example, `INFO1_SET 12, 34` displays `1234` in the centered layout.
@@ -283,8 +318,8 @@ display each value modulo 100. Six digit setters display each value
 modulo 1000.
 
 Every text row displays up to four characters and pads shorter text with
-spaces. Text glyphs cover ASCII space through `Z`. `A2600_INFO1_TEXT` and
-`A2600_INFO2_TEXT` provide quoted text for static rows. Dynamic rows use
+spaces. Text glyphs cover ASCII space through `Z`. `ATARI2600_INFO1_TEXT` and
+`ATARI2600_INFO2_TEXT` provide quoted text for static rows. Dynamic rows use
 `INFO1_TEXT_SET(TEXT_VALUE AS STRING * 4)` or
 `INFO2_TEXT_SET(TEXT_VALUE AS STRING * 4)`.
 
@@ -311,7 +346,7 @@ The related capability values are `TILE_CUSTOM_SHAPE_SUPPORTED = FALSE`,
 tile surface.
 
 `TILE_SUPPORTED` is true when the display has RAM rows: 20 columns with
-`A2600_PLAYFIELD_RAM_ROWS` set, or 40 columns. The surface is 20 by
+`ATARI2600_PLAYFIELD_RAM_ROWS` set, or 40 columns. The surface is 20 by
 `PLAYFIELD_ROWS` cells on the 20 column kernel, 40 by `PLAYFIELD_ROWS`
 with 4 pixel cells, and 20 by `PLAYFIELD_ROWS` with 8 pixel cells.
 
@@ -339,14 +374,60 @@ pixel cells uses this grouping on its own.
 Use score colors to show only the left half of a repeated playfield:
 
 ```basic
-@OPTION A2600_PLAYFIELD_LAYOUT PLAYFIELD_REPEAT
-@OPTION A2600_PLAYFIELD_RAM_ROWS 8
+@OPTION ATARI2600_PLAYFIELD_LAYOUT PLAYFIELD_REPEAT
+@OPTION ATARI2600_PLAYFIELD_RAM_ROWS 8
 
 P0COLOR YELLOW
 P1COLOR BLACK
 BGCOLOR BLACK
 PLAYFIELD_CTRL PF_SCORE
 ```
+
+## Scrolling
+
+Use `SCROLL_SETUP(SCROLL_TYPE_SW)` and `SCROLL_BEGIN SCROLL_AXIS_BOTH` to
+scroll the RAM playfield. `SCROLL_MOVE(DX, DY)` takes native pixels:
+positive X moves the picture left, positive Y moves it up. Move one axis
+and cross at most one cell boundary per call. Refill the returned edge
+with `SCROLL_CELL_PUTC` or `SCROLL_CELL_COLUMN`, then call `SCROLL_PRESENT`
+to draw the frame.
+
+| Renderer | Horizontal step | Vertical step |
+| --- | --- | --- |
+| `SCROLL_RENDERER_NATIVE` | 4 pixels, or 8 with grouped cells | One fixed playfield row |
+| `SCROLL_RENDERER_FINE` | 4 pixels, or 8 with grouped cells | 1 scanline |
+
+Read `SCROLL_X_GRANULARITY` and `SCROLL_Y_GRANULARITY` after `SCROLL_BEGIN`.
+Native rows with variable heights, or heights above 127 scanlines,
+provide horizontal scrolling. Their vertical granularity is zero.
+The 20 column layout keeps its repeat or reflection on the right half.
+
+Scrolling coordinates cover the RAM rows, starting at row zero of that
+window. Information rows stay fixed and are excluded from
+`SCROLL_BUFFER_ROWS`. Other rows retain their order. Colors move with
+vertical scrolling. The four argument `SCROLL_CELL_PUTC` sets the whole
+row's foreground color when row colors are enabled. The wide kernel's
+`PLAYFIELD_ROW_COLORS` uses a writable copy costing one byte per display
+row plus one byte of state.
+
+Select the fine renderer at compile time:
+
+```basic
+@OPTION ATARI2600_SCROLL_RENDERER SCROLL_RENDERER_FINE
+```
+
+It uses 20 or 40 columns with `ATARI2600_PLAYFIELD_CELL_PIXELS 4`, at least
+two fixed height rows, and every row in RAM. RAM rows default to the
+full row count. It draws the playfield with `SPRITE_COUNT 0`, standard
+input, single player colors, and no information rows or playfield
+players. Missiles and the ball are off. Playfield and background row
+colors remain available on the 20 column layout; the 40 column layout
+uses `PLAYFIELD_ROW_COLORS`.
+
+The fine renderer keeps one extra row for incoming cells. Its centered
+view is `PLAYFIELD_ROWS - 1` rows tall, while `SCROLL_BUFFER_ROWS` includes
+all rows. `SCROLL_VIEW_ROWS` reports the visible count. `SCROLL_CLOSE`
+stops further movement and leaves the picture at its current position.
 
 ## Portable Sprites
 
@@ -371,8 +452,7 @@ PROC MAIN
 	SPRITES_ON
 	SPRITE_DATA_8X8 0, ADDR SHIP
 	SPRITE_COLOR 0, YELLOW
-	SPRITE_MOVE 0, 40, 80
-	SPRITE_SHOW 0
+	SPRITE_MOVE_TO 0, 40, 80
 	SPRITES_FLUSH
 
 	WHILE 1
@@ -384,8 +464,8 @@ ENDPROC
 | Call | Purpose |
 | --- | --- |
 | `SPRITES_ON` | Prepare sprites; sprites start hidden |
-| `SPRITE_DATA_8X8 ID, ADDR` | Set an eight-byte shape |
-| `SPRITE_MOVE ID, X, Y` | Set pixel position |
+| `SPRITE_DATA_8X8 ID, ADDR` | Set an eight byte shape and show the sprite |
+| `SPRITE_MOVE_TO ID, X, Y` | Set pixel position |
 | `SPRITE_COLOR ID, C` | Set sprite color |
 | `SPRITE_SHOW ID`, `SPRITE_HIDE ID` | Change visibility |
 | `SPRITES_FLUSH` | Sort four/six-sprite reuse state by visibility and Y; no-op with two sprites |
@@ -393,7 +473,9 @@ ENDPROC
 | `SPRITES_OFF` | Hide all configured sprites |
 
 With two sprites, both hardware players draw their own shape and color.
-They can overlap on a scanline. This works on the 20 column kernel with
+SPRITE_DATA uses the configured sprite height. SPRITE_DATA_8X8 uses eight
+rows, and sprite text uses the font height. The players can overlap on a
+scanline. This works on the 20 column kernel with
 a static playfield or with RAM rows. Sprite setters take effect immediately,
 and `SPRITES_FLUSH` does nothing. `SPRITES_RESET` hides both players,
 clears their stored Y, visibility, and reflection, and returns each player
@@ -427,7 +509,7 @@ has one hardware color per sprite, so leave this option at its default.
 The target specific `PLAYER0_*` and `PLAYER1_*` calls control the two
 hardware players: `PLAYER0_X`, `PLAYER0_Y`, `PLAYER0_SHAPE ADDR`,
 `PLAYER0_HIDE`, `PLAYER0_REFLECT FLAG`, `PLAYER0_CTRL VALUE`, and the same
-for player 1. Shapes are `A2600_SPRITE_HEIGHT` bytes tall (8, 16, or 32).
+for player 1. Shapes are `ATARI2600_SPRITE_HEIGHT` bytes tall (8, 16, or 32).
 They do not update four or six sprite reuse state, so use the portable
 SPRITE calls for reused sprites. Missile, ball, and collision helpers are
 available only when `MISSILES_ENABLED`, `BALL_ENABLED`, and
@@ -436,7 +518,7 @@ available only when `MISSILES_ENABLED`, `BALL_ENABLED`, and
 ## Images and Text
 
 Atari 2600 images use `IMAGE_FMT_PF_ROWS`. Nonzero pixels become set
-playfield bits. Source PNG files must be 8 bit indexed and at most 40x64
+playfield bits. Source PNG files are at most 40x64
 pixels. `--mirror` requires a width of 20 pixels or less.
 
 ```sh
@@ -471,16 +553,18 @@ two narrow target renderers:
 | `TEXT_CLEAR X, Y, COUNT` | Clear using the selected target renderer |
 | `PRINT_AT X, Y, S$` | Same renderer as `TEXT` |
 
-`A2600_TEXT_RENDERER` selects the renderer for `TEXT` at compile time.
-Use `A2600_FONT` and `A2600_SPRITE_FONT` only when the program needs
+`ATARI2600_TEXT_RENDERER` selects the renderer for `TEXT` at compile time.
+Use `ATARI2600_FONT` and `ATARI2600_SPRITE_FONT` only when the program needs
 custom fonts. `FONT`, `PLAYFIELD_FONT`, and `SPRITE_FONT` select fonts at
 runtime. Keep strings short: playfield text accepts `STRING * 5`, while
 sprite text accepts `STRING * 2`. Playfield text requires RAM rows.
 Sprite text requires `SPRITE_COUNT 2`. `TEXT_SUPPORTED` reports
 whether the selected renderer works with the resolved display.
+Sprite font rows place the leftmost pixel in bit 7. Imported sprite fonts
+use this layout while keeping their declared character width.
 
 Information row text is separate from these renderers. Select it with
-`A2600_INFO1` or `A2600_INFO2` as described in
+`ATARI2600_INFO1` or `ATARI2600_INFO2` as described in
 [Information Rows](#information-rows).
 
 ## Frames and Timing
@@ -501,14 +585,25 @@ ENDWHILE
 drawn frames. `TICKS` uses the same counter and wraps after 65536 frames
 since `TICKS_RESET`.
 
-`FRAME_INSTALL ADDR` runs a PROC once per frame at the start of
-overscan, right after the picture, and `FRAME_UNINSTALL` removes it.
-The hook runs inside the kernel's frame, so keep it short; a few
-hundred cycles fit before the next frame starts.
+`FRAME_INSTALL ADDR` runs a PROC once per frame during VBLANK, before
+the kernel sets up the picture, and `FRAME_UNINSTALL` removes it.
+Changes the hook makes show in the same frame. The hook has its own
+time, separate from the main program's: about 1400 to 2400 cycles,
+depending on how much setup the kernel does. A longer hook delays the
+picture and lengthens the frame.
 
 VBLANK and overscan are timed with the RIOT timer rather than counted,
 so positioning objects anywhere on the line, including the right edge,
 never changes the frame length.
+
+The main program runs during overscan, from one `FRAME_WAIT` to the
+next: about 2100 cycles per frame on NTSC and 3900 on PAL. Work past
+that lengthens the frame it runs in, which can make a television roll
+for a moment. A `TEXT` character takes about 1000 cycles, a
+`SCROLL_MOVE` step 400 to 1600 depending on the playfield, and a whole
+surface fill on the 40 column kernel about one frame's time. Spread
+large updates over several frames, for example two characters of text
+per frame.
 
 `REGION` selects the television standard. NTSC, the default, draws 3
 VSYNC, 37 VBLANK, 192 visible, and 30 overscan scanlines (262) with
@@ -524,18 +619,20 @@ both regions.
 | Every kernel | 1 byte of playfield control, 2 bytes of frame hook, joystick shadow, frame counter, random state |
 | Static playfield | 3 shadow bytes |
 | 20 column RAM rows | 3 bytes per row |
+| 32 column ROM rows | 2 bytes per row, plus 1 byte |
 | 40 column RAM rows, 4 pixel cells | 6 bytes per row |
 | 40 column rows, 8 pixel cells | 2.5 bytes per row |
 | Two sprites | X, first and last line, and shape address per player, 5 bytes each, plus portable Y and visibility |
-| Missiles or ball | X and row, 2 bytes per object, 3 with row runs or gaps |
+| Missiles or ball | X and row, 2 bytes per object, 3 with row runs or gaps or with `ATARI2600_MISSILE_HEIGHT` |
 | Four sprites | 24 byte table, 28 with per sprite color |
 | Six sprites | 36 byte table, 42 with per sprite color |
-| Per row colors or heights | One byte per row and table |
+| Per row colors | One byte per row and table |
+| Per row heights | One byte per row, plus one byte |
 | Four digit score row | 4 glyph bytes |
 | Six digit score row | 6 glyph bytes |
 | Static information text | No persistent row state |
 | Dynamic information text | 4 glyph bytes |
-| Timed paddles | 2 bytes |
+| Timed paddles | 2 bytes, 4 with per row heights |
 | Playfield players | None between frames |
 
 The four and six sprite figures cover persistent reuse tables only.
@@ -553,38 +650,39 @@ These source options refine a supported feature combination:
 
 | Option | Values |
 | --- | --- |
-| `A2600_PLAYFIELD_LAYOUT` | `PLAYFIELD_REPEAT`, `PLAYFIELD_REFLECT` (default); 20 columns only |
-| `A2600_PLAYFIELD_ROWS` | Any count whose height fits 192 lines; default `8` |
-| `A2600_PLAYFIELD_ROW_SCANLINES` | Lines per row; default `192 \ ROWS`, `8` with 8 pixel cells |
-| `A2600_PLAYFIELD_RAM_ROWS` | Rows kept in RAM; default `0` on 20 columns, all rows on 40 |
-| `A2600_PLAYFIELD_RAM_ROW_FIRST` | First RAM row on the 40 column kernel with 4 pixel cells; default `0` |
-| `A2600_PLAYFIELD_FILL_ROW_ABOVE`, `A2600_PLAYFIELD_FILL_ROW_BELOW` | `TRUE` names a six byte `CONST` row for the rows outside the window |
-| `A2600_PLAYFIELD_ROW_COLORS` | `TRUE` colors 40 column rows from the `CONST` table `PLAYFIELD_ROW_COLORS` |
-| `A2600_PLAYFIELD_CELL_PIXELS` | `4` (default), `8`; 40 columns only |
-| `A2600_PLAYFIELD_PLAYERS` | `0` (default), `1`, `2`; 40 columns only |
-| `A2600_PLAYER_ROWS` | Rows a playfield player covers; default `1` |
-| `A2600_SPRITE_HEIGHT` | `8` (default), `16`, `32` |
-| `A2600_INFO1` | `INFO_NONE` (default), `INFO_SCORE`, `STATIC_TEXT`, `DYNAMIC_TEXT` |
-| `A2600_INFO1_ROW` | `0` through `PLAYFIELD_ROWS - 1`; required when slot 1 is enabled |
-| `A2600_INFO1_TEXT` | Quoted text up to four characters; required with slot 1 `STATIC_TEXT` |
-| `A2600_INFO2` | `INFO_NONE` (default), `INFO_SCORE`, `STATIC_TEXT`, `DYNAMIC_TEXT` |
-| `A2600_INFO2_ROW` | `0` through `PLAYFIELD_ROWS - 1`; required when slot 2 is enabled |
-| `A2600_INFO2_TEXT` | Quoted text up to four characters; required with slot 2 `STATIC_TEXT` |
-| `A2600_SCORE_DIGITS` | `4` (default), `6` |
-| `A2600_SCORE_LAYOUT` | `SCORE_LAYOUT_SPLIT` (default), `SCORE_LAYOUT_CENTERED` |
-| `A2600_MISSILES` | `TRUE` (default), `FALSE`; 20 columns |
-| `A2600_BALL` | `TRUE` (default), `FALSE`; not with 8 pixel cells |
-| `A2600_COLLISIONS` | `TRUE` (default), `FALSE` |
-| `A2600_SPRITE_COLORS` | `SPRITE_COLOR_MODE_SHARED`, `SPRITE_COLOR_MODE_PER_SPRITE`; four or six sprites |
-| `A2600_PLAYER_COLORS` | `PLAYER_COLORS_SINGLE`, `PLAYER_COLORS_PLAYER1_PER_ROW`, `PLAYER_COLORS_PER_ROW` |
-| `A2600_PLAYFIELD_COLORS` | `PLAYFIELD_COLORS_SINGLE`, `PLAYFIELD_COLORS_PER_ROW` |
-| `A2600_BACKGROUND_COLORS` | `BACKGROUND_COLORS_SINGLE`, `BACKGROUND_COLORS_PER_ROW` |
-| `A2600_PLAYFIELD_HEIGHTS` | `PLAYFIELD_HEIGHTS_FIXED`, `PLAYFIELD_HEIGHTS_PER_ROW` |
-| `A2600_INPUT_MODE` | `INPUT_STANDARD`, `INPUT_TIMED_PADDLE` |
-| `A2600_OBJECT_ROWS` | `OBJECT_ROWS_SINGLE` (default), `OBJECT_ROWS_RANGE`, `OBJECT_ROWS_GAP`; 20 columns |
-| `A2600_TEXT_RENDERER` | `TEXT_PLAYFIELD`, `TEXT_SPRITE` |
-| `A2600_FONT` | Playfield font path |
-| `A2600_SPRITE_FONT` | Sprite font path |
+| `ATARI2600_PLAYFIELD_LAYOUT` | `PLAYFIELD_REPEAT`, `PLAYFIELD_REFLECT` (default); 20 columns only |
+| `ATARI2600_PLAYFIELD_ROWS` | Any count whose height fits 192 lines; default `8` |
+| `ATARI2600_PLAYFIELD_ROW_SCANLINES` | Lines per row; default `192 \ ROWS`, `8` with 8 pixel cells |
+| `ATARI2600_PLAYFIELD_RAM_ROWS` | Rows kept in RAM; default `0` on 20 or 32 columns, all rows on 40 |
+| `ATARI2600_PLAYFIELD_RAM_ROW_FIRST` | First RAM row on the 40 column kernel with 4 pixel cells; default `0` |
+| `ATARI2600_PLAYFIELD_FILL_ROW_ABOVE`, `ATARI2600_PLAYFIELD_FILL_ROW_BELOW` | `TRUE` names a six byte `CONST` row for the rows outside the window |
+| `ATARI2600_PLAYFIELD_ROW_COLORS` | `TRUE` colors 40 column rows from the `CONST` table `PLAYFIELD_ROW_COLORS` |
+| `ATARI2600_PLAYFIELD_CELL_PIXELS` | `4` (default), `8`; 40 columns only |
+| `ATARI2600_PLAYFIELD_PLAYERS` | `0` (default), `1`, `2`; 40 columns only |
+| `ATARI2600_PLAYER_ROWS` | Rows a playfield player covers; default `1` |
+| `ATARI2600_SPRITE_HEIGHT` | `8` (default), `16`, `32` |
+| `ATARI2600_INFO1` | `INFO_NONE` (default), `INFO_SCORE`, `STATIC_TEXT`, `DYNAMIC_TEXT` |
+| `ATARI2600_INFO1_ROW` | `0` through `PLAYFIELD_ROWS - 1`; required when slot 1 is enabled |
+| `ATARI2600_INFO1_TEXT` | Quoted text up to four characters; required with slot 1 `STATIC_TEXT` |
+| `ATARI2600_INFO2` | `INFO_NONE` (default), `INFO_SCORE`, `STATIC_TEXT`, `DYNAMIC_TEXT` |
+| `ATARI2600_INFO2_ROW` | `0` through `PLAYFIELD_ROWS - 1`; required when slot 2 is enabled |
+| `ATARI2600_INFO2_TEXT` | Quoted text up to four characters; required with slot 2 `STATIC_TEXT` |
+| `ATARI2600_SCORE_DIGITS` | `4` (default), `6` |
+| `ATARI2600_SCORE_LAYOUT` | `SCORE_LAYOUT_SPLIT` (default), `SCORE_LAYOUT_CENTERED` |
+| `ATARI2600_MISSILES` | `TRUE` (default), `FALSE`; 20 columns |
+| `ATARI2600_BALL` | `TRUE` (default), `FALSE`; not with 8 pixel cells |
+| `ATARI2600_COLLISIONS` | `TRUE` (default), `FALSE` |
+| `ATARI2600_SPRITE_COLORS` | `SPRITE_COLOR_MODE_SHARED`, `SPRITE_COLOR_MODE_PER_SPRITE`; four or six sprites |
+| `ATARI2600_PLAYER_COLORS` | `PLAYER_COLORS_SINGLE`, `PLAYER_COLORS_PLAYER1_PER_ROW`, `PLAYER_COLORS_PER_ROW` |
+| `ATARI2600_PLAYFIELD_COLORS` | `PLAYFIELD_COLORS_SINGLE`, `PLAYFIELD_COLORS_PER_ROW` |
+| `ATARI2600_BACKGROUND_COLORS` | `BACKGROUND_COLORS_SINGLE`, `BACKGROUND_COLORS_PER_ROW` |
+| `ATARI2600_PLAYFIELD_HEIGHTS` | `PLAYFIELD_HEIGHTS_FIXED`, `PLAYFIELD_HEIGHTS_PER_ROW` |
+| `ATARI2600_INPUT_MODE` | `INPUT_STANDARD`, `INPUT_TIMED_PADDLE` |
+| `ATARI2600_OBJECT_ROWS` | `OBJECT_ROWS_SINGLE` (default), `OBJECT_ROWS_RANGE`, `OBJECT_ROWS_GAP`; 20 columns |
+| `ATARI2600_MISSILE_HEIGHT` | `0` (default) for row missiles, or the missile height in lines; 20 columns |
+| `ATARI2600_TEXT_RENDERER` | `TEXT_PLAYFIELD`, `TEXT_SPRITE` |
+| `ATARI2600_FONT` | Playfield font path |
+| `ATARI2600_SPRITE_FONT` | Sprite font path |
 
 The per row tables, information rows, missiles, and timed paddles belong
 to the 20 column kernel. Fill rows, `PLAYFIELD_ROW_COLORS`, cell width,
@@ -598,7 +696,7 @@ Resolved constants include `PLAYFIELD_LAYOUT`, `PLAYFIELD_COLUMNS`,
 `MISSILES_ENABLED`, `BALL_SUPPORTED`, `BALL_ENABLED`,
 `COLLISIONS_ENABLED`, and the portable capability constants. Use those
 values in `@IF` blocks when a source needs to adapt to the chosen
-features. The `A2600_MISSILES`, `A2600_BALL`, and `A2600_COLLISIONS`
+features. The `ATARI2600_MISSILES`, `ATARI2600_BALL`, and `ATARI2600_COLLISIONS`
 options request features; the resolved constants say whether the chosen
 display can provide them.
 
@@ -613,13 +711,14 @@ display can provide them.
 | `MISSILE0_ENABLE FLAG`, `MISSILE1_ENABLE FLAG` | Show or hide missiles when available |
 | `MISSILE0_X X`, `MISSILE1_X X` | Position missiles |
 | `MISSILE0_ROW ROW`, `MISSILE0_Y Y`, and the same for missile 1 | Pick the row a missile appears on |
-| `MISSILE0_ROWS FIRST, COUNT`, `MISSILE0_GAP FIRST, COUNT`, `MISSILE0_HIDE` | Row runs and gaps with `A2600_OBJECT_ROWS` |
+| `MISSILE0_ROWS FIRST, COUNT`, `MISSILE0_GAP FIRST, COUNT`, `MISSILE0_HIDE` | Row runs and gaps with `ATARI2600_OBJECT_ROWS` |
+| `MISSILE0_Y Y`, `MISSILE0_HIDE`, and the same for missile 1 | Place a missile's top line or hide it with `ATARI2600_MISSILE_HEIGHT` |
 | `BALL_ENABLE FLAG`, `BALL_SIZE SIZE` | Show the ball and set its size |
 | `BALL_X X`, `BALL_ROW ROW`, `BALL_Y Y`, `BALL_ROWS`, `BALL_GAP`, `BALL_HIDE` | Position the ball |
 | `COLLISION_CLEAR` | Clear TIA collision latches |
 
 Playfield flags are `PF_REFLECT`, `PF_SCORE`, and `PF_PRIORITY`; the
-kernels set reflection from `A2600_PLAYFIELD_LAYOUT`. Ball sizes are
+kernels set reflection from `ATARI2600_PLAYFIELD_LAYOUT`. Ball sizes are
 `BALL_SIZE_1`, `BALL_SIZE_2`, `BALL_SIZE_4`, and `BALL_SIZE_8`. Extra
 color names are `BRIGHT_ORANGE`, `DARK_BLUE`, `DARK_ORANGE`, `DARK_RED`,
 `DARK_YELLOW`, and `LIGHT_ORANGE`.
@@ -630,7 +729,7 @@ the next frame. The `HIT_*` helpers read individual collision latches.
 
 ## Custom Kernels
 
-`A2600_CUSTOM_KERNEL TRUE` with `SPRITE_COUNT 0` links no display
+`ATARI2600_CUSTOM_KERNEL TRUE` with `SPRITE_COUNT 0` links no display
 kernel. The program owns the display: it writes its own PROC that draws
 a frame and calls it instead of `FRAME_WAIT`. The shared runtime still
 expects `FRAME_COUNTER` counting frames and the background color in
@@ -654,16 +753,17 @@ fire. `PAD1` and `PAD2` combine directions and fire in one target mask.
 switches. The difficulty helpers return `CONSOLE_DIFFICULTY_A` (`1`) or
 `CONSOLE_DIFFICULTY_B` (`0`).
 
-Paddles are timing devices. `PADDLE` requires `A2600_INPUT_MODE
+Paddles are timing devices. `PADDLE` requires `ATARI2600_INPUT_MODE
 INPUT_TIMED_PADDLE`: the 20 column kernel times paddles 0 and 1 while it
 draws, and `PADDLE(0)` and `PADDLE(1)` return positions. `PADDLE_MAX` is
-the position both paddles reach at full turn for the chosen row layout;
-one paddle can count a little past it. Timed paddles are not available
-with information rows. Paddle positions update while frames are drawn.
+the position both paddles reach at full turn for the chosen row layout.
+Each paddle is scaled to reach `PADDLE_MAX` at full turn. Timed
+paddles are not available with information rows. Paddle positions update
+while frames are drawn.
 
-`PTRIG(0)` through `PTRIG(3)` read the paddle buttons and return `0`
-while a button is pressed. Joystick directions, fire buttons, and paddle
-buttons are read when called.
+`PADDLE_BUTTON(0)` through `PADDLE_BUTTON(3)` read the paddle buttons
+and return `1` while pressed and `0` when released. Joystick directions,
+fire buttons, and paddle buttons are read when called.
 
 ## Sound
 
@@ -711,9 +811,10 @@ pitch. Note pitches follow `REGION`. Exact effects use `TIA.SOUND`.
 ticks, one per drawn frame, and then stop the voice.
 
 `BEEP DURATION` uses voice `0`, divider `12`, control `4`, and volume
-`8`. It calls `FRAME_WAIT DURATION`, keeping a built in display active,
-and then stops voice `0`. Its duration is also measured in drawn frames.
-`BEEP PERIOD, DURATION` works the same way with `PERIOD` as the divider.
+`8`. It waits with `FRAME_WAIT`, keeping a built in display active, and
+then stops voice `0`. Its milliseconds are rounded to drawn frames.
+`BEEP PERIOD, DURATION` uses `PERIOD` as the divider and counts
+`DURATION` in drawn frames.
 
 Timed sound scheduling is unavailable: `SOUND_TIMED_SUPPORTED` and
 `SOUND_TIMED_FREE_RUNNING` are `FALSE`, and `SOUND_TIMED_VOICES` is `0`. Timed
@@ -730,5 +831,6 @@ Default builds try 2K, then 4K. Larger banked cartridges use
 | `f6` | 16K | 4 |
 | `f4` | 32K | 8 |
 
-Use `@BANK N` for code in a switched bank. See
+Each bank holds 4K. The last bank holds startup and untagged code; the
+other banks hold code selected with `@BANK N`. See
 [`../USAGE.md#banked-builds`](../USAGE.md#banked-builds).

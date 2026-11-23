@@ -32,8 +32,9 @@ normally visible to reads. Enable it explicitly with:
 ```
 
 This selects SAM all RAM mode, masks IRQ and FIRQ, and gives mutable
-program data `$7800` through `$FEFF`. Code stays below the `$6000`
-PMODE 4 screen, so graphics cannot overwrite it. `END` loops instead
+program data `$7800` through `$FEFF` on CoCo 1/2, or `$8000` through
+`$FEFF` on CoCo 3 to keep data outside the bank window. Code stays below
+the `$6000` PMODE 4 screen, so graphics cannot overwrite it. `END` loops instead
 of returning to BASIC.
 
 The option removes all Color BASIC, Extended Color BASIC, Disk BASIC,
@@ -72,6 +73,9 @@ on CoCo 1 and 2 systems.
 
 ### Color behavior
 
+On CoCo 1 and 2, `BLACK` is 0 and `GREEN` is 8. Semigraphics drawing,
+clearing, and `POINT` use these distinct color values.
+
 The three argument `PLOT` uses its color in semigraphics, VDG color graphics,
 and multicolor GIME modes. VDG resolution graphics and one bit GIME
 modes can only set or clear a pixel.
@@ -86,25 +90,66 @@ current drawing color in color bitmap modes.
 
 ### Extended Color BASIC compatibility
 
-The `extended_color_basic` dialect accepts `PMODE`, `SCREEN`, `PCLS`,
+The `extended_color_basic` dialect provides `PMODE`, `SCREEN`, `PCLS`,
 `COLOR`, `PSET`, `PRESET`, `PPOINT`, `LINE`, `CIRCLE`, `PAINT`,
-`PCOPY`, and `DRAW` with these differences from the ROM:
+`PCOPY`, `DRAW`, graphics `GET`/`PUT`, `PLAY`, and `TIMER`.
 
-- The `PMODE` page argument is accepted but ignored.
-- `COLOR` uses the foreground to select the hardware colorset; its
-  background argument is ignored.
-- `PCOPY` is a no-op.
-- `CIRCLE` ignores height, start angle, and end angle arguments.
-- `PAINT` ignores paint and border colors and uses a fixed 256-entry
-  point stack. A large fill can stop before the area is complete.
-- `DRAW` implements `U`, `D`, `L`, `R`, `E`, `F`, `G`, `H`, `M`, `B`,
-  `N`, and `C`. It parses but ignores angle and scale, and skips the
-  `X` substring command.
+Graphics reserve eight 1536-byte pages at `$4800-$77FF`. `PMODE` selects
+where to draw; `SCREEN` selects what to display. Coordinates use the
+native 256x192 grid in every PMODE. Colors use the native 0..8 numbering.
+`COLOR` sets foreground and background independently.
+
+`CIRCLE` accepts height/width ratio and start/end arc positions. `PAINT`
+accepts paint and border colors. `DRAW` supports angle, scale, signed
+relative moves, and `X` string references. `PLAY` accepts native music
+strings. `TIMER` reads or sets the 60 Hz clock.
 
 Both Color BASIC dialects accept `SOUND tone, duration` and `AUDIO ON` or
 `AUDIO OFF`. Pitch follows the ROM tone scale, with tone 89 near middle C,
 and one duration unit lasts about a sixteenth of a second. Both values are
 approximate until checked against a real machine.
+
+## Scrolling
+
+`SCROLL_SETUP(SCROLL_TYPE_SW)` selects software scrolling in every
+available `DISPLAY` mode. `SCROLL_MOVE DX, DY` accepts native pixel
+steps in either direction; both granularity values are `1`. Move one
+axis per call and cross at most one cell boundary before filling the
+returned edge and calling `SCROLL_PRESENT`.
+
+Bitmap cells are 8x8 pixels. VDG text uses 8x12 cells and GIME text
+uses 8x8 cells. Each enabled axis keeps one cell hidden for incoming
+content. Use `SCROLL_BUFFER_COLUMNS`, `SCROLL_BUFFER_ROWS`,
+`SCROLL_VIEW_COLUMNS`, and `SCROLL_VIEW_ROWS` for the active sizes.
+`SCROLL_CELL_PUTC` and `SCROLL_CELL_COLUMN` write the backing buffer.
+The foreground argument follows the display's color choices.
+
+Text scrolls through a bitmap font. CoCo 3 color text keeps foreground
+and background colors; 64/80-column color text uses a 32/40-column
+bitmap while retaining the full text width in the backing buffer.
+`SCROLL_CLOSE` restores the native text mode with the updated characters
+and colors. Bitmap modes retain the updated picture at a cell boundary.
+
+On CoCo 3, `SCROLL_SETUP(SCROLL_TYPE_HW)` before `SCROLL_BEGIN` scrolls
+GIME text displays with the video registers instead of redrawing them;
+other displays keep software scrolling. Vertical moves use one pixel
+steps. Horizontal moves are whole characters, so `SCROLL_X_GRANULARITY`
+is `8`; monochrome GIME text scrolls vertically only and reports `0`.
+The full text screen stays visible, all 64 or 80 columns included, with
+the hidden column to its right and the hidden row below. Part of the
+hidden row shows while the view sits between rows. `SCROLL_CLOSE`
+restores the native text mode with the top 24 rows. Hardware text
+scrolling keeps its cells in RAM blocks `$31` to `$33`.
+
+Semigraphics moves shapes by one native pixel. Its shared hardware
+colors follow the source cell at the top left of each destination
+color group, so fine movement can change colors at shape boundaries.
+
+CoCo 1/2 scrolling uses a 6K backing buffer. CoCo 3 uses spare RAM banks
+and a backing area of 3232 bytes in program RAM, including on 128K
+machines. Keep the scrolling display's memory in use until
+`SCROLL_CLOSE`. Software redraw speed depends on the display size
+and color depth.
 
 ## Images
 
@@ -113,30 +158,45 @@ PMODE 4 screen. The converter accepts raw PMODE 4 dumps and DECB
 `.BIN` or `.MAX` files. Bit 0 of the descriptor aux byte selects the
 VDG colorset.
 
-Converted PMODE 4 descriptors use RLE8 when it makes the stored image
-smaller. Embedded images and converted `.img` files are decoded directly
-into the PMODE 4 bitmap. Images that do not shrink stay uncompressed.
+CoCo 3 also supports `IMAGE_FMT_COCO_GIME`, a 320x192, 16 color
+bitmap with its palette. Select `coco-gime` when converting a color image.
+`IMAGE_LOAD` selects the matching display mode for embedded images
+and converted `.img` files.
+
+Converted descriptors use RLE8 when it makes the stored image smaller.
+Images that do not shrink stay uncompressed.
 
 `IMAGE_WIPE` and `IMAGE_SLIDE` move the bitmap in all four directions.
 `IMAGE_FADE_IN` and `IMAGE_FADE_OUT` use four dither steps. Dissolves
-use 1, 2, 4, or 8 pixel blocks. Effects use unpacked images.
+use 1, 2, 4, or 8 pixel blocks. PMODE 4 effects accept unpacked and RLE8
+images. A compressed effect temporarily uses 6144 bytes of heap space.
 
 ## Software sprites
 
-CoCo sprites use the 256x192 PMODE 4 bitmap, with eight software sprite
-slots by default. Flipping, expansion, priority, and pixel collisions are
-supported. Keep the transformed shape within the screen.
+CoCo sprites use the 256x192 PMODE 4 bitmap or the selected GIME bitmap,
+with eight software sprite slots by default. Flipping, expansion,
+priority, and pixel collisions are supported. Keep the transformed
+shape within the screen.
 
-`SPRITE_COLOR` draws black for zero and the active display foreground for
-any nonzero value. Use `WHITE` for the foreground; `COLOR` selects the
-display colorset. PMODE 4 has no independent sprite palettes, so
-`SPRITE_PALETTE` and `SPRITE_PALETTE_SET` have no effect.
+In PMODE 4, `SPRITE_COLOR` draws black for zero and the active display
+foreground for any nonzero value. Use `WHITE` for the foreground;
+`COLOR` selects the display colorset. GIME sprites use the selected
+bitmap palette and color depth.
 
-Page flipping is enabled by default, using `$4600` and `$6000`.
-`SPRITES_FLUSH` draws on the hidden page and swaps during vertical blank.
+Double buffering is enabled by default. PMODE 4 uses `$4600` and `$6000`
+and swaps pages during vertical blank. GIME keeps its hidden buffer in
+banks `$25`, `$26`, `$27`, and `$2B`, with 3232 additional bytes at
+`$4600`. While GIME sprites use double buffering, plotting, bitmap text,
+and other bitmap drawing use the hidden buffer. `GFX_SWAP` draws the
+sprites, waits for vertical blank, and copies the completed picture to
+the screen. The drawing buffer keeps its contents.
 The following `FRAME_WAIT` counts that wait and runs frame services.
-With `SPRITE_DOUBLE_BUFFER FALSE`, `SPRITES_FLUSH` draws on the visible
-page. Position, shape, and visibility changes take effect on the next flush.
+With `SPRITE_DOUBLE_BUFFER FALSE`, sprite updates draw on the visible
+page. `GFX_SWAP` applies position, shape, and visibility changes.
+
+Call `SPRITES_RESTORE` before drawing into the background, then
+`GFX_SWAP` to redraw the sprites. Restoration preserves sprite
+positions and visibility.
 
 ## Text and cells
 
@@ -176,11 +236,10 @@ reading the buttons.
 `FRAME_WAIT` uses the PIA VSYNC flag. CoCo timing assumes 60 Hz NTSC;
 there is no PAL timing selection.
 
-The general tick source is the Extended Color BASIC `TIMER` word at
-`$0112`. It is a 16-bit 60 Hz counter and wraps in about 18 minutes.
-Cassette and sound ROM activity can mask the IRQ and pause it. A
-cartridge relies on the ROM's existing IRQ setup. `coco.1` has no
-`TIMER`, so its ticks count `FRAME_WAIT` frames.
+`TICKS` returns a 32-bit elapsed count at 60 Hz. `TICKS_RESET` starts a
+new interval. Extended Color BASIC systems extend the ROM timer through
+its interrupt; cassette and sound ROM activity can pause that clock.
+On `coco.1`, ticks count `FRAME_WAIT` frames.
 
 ## Sound
 
@@ -240,7 +299,8 @@ text screen, which is the GIME state the library assumes.
 
 `AUDIO_PLAYBACK_MODEL` is `AUDIO_PLAYBACK_BLOCKING`. `AUDIO_PLAY` streams
 an unsigned 8 bit mono PCM asset through the DAC and returns when the last
-sample has played. Nothing else runs during playback, so keep clips short.
+sample has played. Interrupts and the frame clock pause during playback,
+so keep clips short.
 Memory is the other limit: one second at 8000 Hz takes 8000 bytes.
 
 Sample rates up to about 23 kHz are accepted, and 8000 Hz is a good fit.
@@ -307,15 +367,22 @@ Disk file calls use Disk BASIC ROM routines. They assume a disk
 controller and a Disk BASIC 1.0 or 1.1 ROM are present at runtime.
 
 Disk file channels run from 1 to 15, and all 15 can be open at once.
-Sequential read, write, and directory listings are available.
-Append and update modes report unsupported. `FILE_OPEN_NATIVE` also accepts
-the Disk BASIC direct mode byte.
+Read, write, append, update, and directory modes are available.
+Append starts at the end and creates the file if needed. Update starts at
+byte zero, preserves unread bytes, and extends the file when writing past
+its end. Each extra channel reserves one buffer while open.
+`FILE_OPEN_NATIVE` also accepts the Disk BASIC direct mode byte.
 
 `AUX1` is `DISK_FILE_MODE_INPUT`, `DISK_FILE_MODE_OUTPUT`, or
 `DISK_FILE_MODE_DIRECT`. `AUX2` is the default drive. File names use
 the Disk BASIC `NAME/EXT:DRIVE` form; an explicit drive in the path
 overrides `AUX2`. `NAME.EXT` works too. Names are uppercased and cut to
 8 characters with a 3 character extension.
+
+`FILE_COMMAND DISK_COMMAND_DELETE, CHANNEL, 0, DRIVE, PATH$` deletes a file.
+Use `DISK_COMMAND_RENAME` with `"OLD/EXT,NEW/EXT"` to rename a file on the
+same drive. `FILE_STATUS(CHANNEL)` returns the result. Open files cannot
+be deleted or renamed.
 
 `ON_ERROR` catches disk, directory, and tape errors, and `ERR()`
 returns the error status. Reaching the end of a file is not an error.
@@ -366,6 +433,12 @@ Extended Color BASIC. Fractional powers do.
 
 ## CoCo 3
 
+`RAM_PAGE bank` selects a physical 8K RAM bank at `$6000-$7FFF` through
+GIME's task 0 MMU entry. `RAM_PAGE()` returns that bank number.
+Use task 0 with the MMU enabled. Selectors are `0` through `63`; a 128K
+machine has 16 distinct banks, and a 512K machine has 64. Restore the
+mapping before screen operations, which also use this window.
+
 The `coco.3` system provides the GIME graphics, text, palette, video
 offset, and MMU register names. The manifest exposes:
 
@@ -385,13 +458,14 @@ offset, and MMU register names. The manifest exposes:
 
 CoCo 3 color constants name 16 distinct palette slots. `BLACK` is 0,
 `WHITE` is 1, and `GREEN` is 5. Palette colors use RGB monitor encoding.
-`BORDER_COLOR` writes the named color's RGB value.
+`BORDER_COLOR` writes the named color's RGB value, or accepts
+`RGB(r, g, b)` with channels reduced to two bits each.
 
 `PALETTE_SET index, color` changes a slot using a named color or
 `RGB(r, g, b)`. RGB channels are reduced to two bits each. GIME bitmap
 modes use slots 0 through 15, with 2 or 4 color modes displaying only
-the first 2 or 4 slots. GIME text uses slots 0 through 7; palette writes
-change the matching foreground and background colors together.
+the first 2 or 4 slots. GIME text exposes all 16 palette slots, allowing
+foreground and background colors to be changed separately.
 
 Selecting a display mode installs its starting palette. `PALETTE_RESET`
 restores that palette. VDG modes use their compatible colors, and

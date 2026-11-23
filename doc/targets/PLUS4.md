@@ -21,9 +21,17 @@ Startup preserves the selected letter case. Printing `{LOWER}` selects
 mixed case; `{UPPER}` selects uppercase and graphics. These controls
 affect the whole screen. Returning to BASIC keeps that selection.
 
+See [CBM text escapes](CBM_TEXT.md) for named controls, colors, and graphics.
+
 Use `{$NN}` for an exact PETSCII byte. The CBM BASIC dialect also maps
 `~` to `$FF` for VICE petcat listings. By default, `REAL` uses the BASIC 3.5 ROM
 floating point routines.
+
+Use `--set optimize=speed --set math-real=target` for faster addition,
+subtraction, and multiplication with the same five byte format. The
+required routines occupy extra program RAM. Rounding can differ from ROM
+results. Division and transcendental functions use ROM;
+`optimize=size math-real=target` uses ROM throughout.
 
 ## Program memory
 
@@ -62,7 +70,7 @@ Native TED mode constants are also available: `TED_TEXT`,
 record the native value in `DISPLAY_MODE`.
 
 Bitmap modes use the bitmap at `$4000`, luma attributes at `$0800`,
-and chroma attributes at `$0C00`. `@OPTION BITMAP_BASE $8000` moves the
+and chroma attributes at `$0C00`. `@OPTION PLUS4_BITMAP_BASE $8000` moves the
 bitmap to `$8000`, beneath the BASIC ROM, so program memory stays in one
 piece from `$1010` to `$7FFF`.
 
@@ -78,16 +86,43 @@ foreground, background, and two shared multicolor text colors. The
 per-cell `CELL_COLOR col, row, color` sets that cell's foreground color.
 The other three colors are shared across the screen.
 
+In `CELL` mode, `CELL_ATTRIB` selects `INVERSE` and `BLINKING` text.
+
+`CHARSET_COPY_DEFAULT` copies the selected ROM font to RAM at `$3800-$3BFF`.
+`CHARSET_DEFINE` replaces an 8 byte glyph; `CHARSET_INSTALL` replaces all
+128 glyphs. `CHARSET_RESET` restores the previous font. Characters 128-255
+display the inverse of characters 0-127.
+
+`@OPTION PLUS4_CHARSET_256 TRUE` uses 256 distinct glyphs at
+`$3800-$3FFF`. Character codes use all eight bits, so `INVERSE` leaves
+the glyph unchanged. `BLINKING` still applies. Charset installation,
+copying, and reset select the matching character mode.
+
 ## Scrolling
 
-`SCROLL_BEGIN 8, 8` enables smooth cell scrolling in both directions.
-Use zero for either step to disable that axis. The backing screen is
-40x25 cells; scrolling reduces the visible area to 38 columns and 24 rows
-when both axes are enabled.
+`SCROLL_BEGIN SCROLL_AXIS_BOTH` enables pixel scrolling in cell, multicolor
+cell, hires bitmap, and multicolor bitmap modes. Use `SCROLL_AXIS_X` or
+`SCROLL_AXIS_Y` to enable only one axis. `SCROLL_MOVE dx, dy` accepts native
+pixel distances, including one pixel. A multicolor pixel spans two hires
+dots horizontally. Move one axis per call and cross at most one cell boundary.
 
-Scrolling uses the normal text screen and a second screen at `$6000-$67FF`,
-which is reserved automatically. Set the cell colors before `SCROLL_BEGIN`.
-Individual cell colors remain fixed.
+`SCROLL_BEGIN_REGION x, y, columns, rows, axes` scrolls a cell rectangle
+while keeping cells outside it fixed. Regions move by whole cells;
+read `SCROLL_X_GRANULARITY` and `SCROLL_Y_GRANULARITY` for the pixel
+steps. Edge refill coordinates are relative to the region.
+
+The backing screen is 40x25 cells; enabling both axes gives a 38x24 cell
+view. Cell scrolling uses a second screen at `$6000-$67FF`, reserved
+automatically. Characters and their colors move together. Bitmap scrolling
+moves the bitmap and both color planes, preserving the selected display mode.
+Bitmap copies at cell boundaries can take more than one frame.
+
+Fill the edge returned by `SCROLL_MOVE`, then call `SCROLL_PRESENT`.
+`SCROLL_CELL_PUTC col, row, code, fg` sets the new cell's foreground color;
+the three argument form and `SCROLL_CELL_COLUMN` use the current foreground.
+In bitmap modes these calls draw glyphs from the selected character set.
+For multicolor bitmaps, `fg` selects the color of pixel value 1.
+`SCROLL_CLOSE` restores the full screen dimensions.
 
 `TED_SCROLL_REGION first_row, rows` applies horizontal fine scrolling to
 a band of the display, leaving the rows outside it fixed. Rows run from
@@ -104,7 +139,11 @@ screen contents.
 Native image display supports `IMAGE_FMT_TED_HIRES` and
 `IMAGE_FMT_TED_MULTI` for Botticelli and Multi Botticelli files
 (10050 bytes, load address `$7800`). KERNAL-backed runtime image loading
-is available.
+reads these native files and crustyBASIC image descriptors through
+`IMAGE_LOAD(path$)`.
+
+Image descriptors use raw data or RLE8 packing. `IMAGE_LOAD` expands
+packed planes directly into screen memory from a file or memory address.
 
 Both formats support wipes, slides, eight step fades, and dissolves.
 Effects use unpacked images in memory; fade out and dissolve out work on
@@ -137,7 +176,24 @@ finished page. Call `FRAME_WAIT` after each update; it counts that wait
 without waiting again.
 Sprite colors are refreshed when their covered cells or colors change.
 
-`SPRITES_ON` selects the matching bitmap mode.
+Select the matching bitmap mode with `DISPLAY DISPLAY_MODE_SPRITE` before
+`SPRITES_ON`.
+
+`SPRITE_FLIP_X` and `SPRITE_FLIP_Y` mirror complete shapes, including
+layouts supplied by `SPRITE_DATA_TILES`.
+`SPRITE_EXPAND` doubles the shape along either axis. Expansion and
+flipping can be combined.
+
+`SPRITE_PRIORITY id, TRUE` places a sprite behind occupied bitmap
+pixels. Cell colors remain shared with the bitmap.
+
+`SPRITE_HIT` tests occupied pixels against other visible sprites.
+`SPRITE_HIT_BG` tests occupied pixels against the bitmap with all
+sprites removed. Both calls use the current shapes and positions.
+
+`SPRITES_BEGIN` and `SPRITES_END` group sprite moves, shape changes,
+colors, and visibility changes into one redraw. Individual calls draw
+immediately when `SPRITE_DOUBLE_BUFFER` is false.
 
 ## Input
 
@@ -154,6 +210,18 @@ Sprite colors are refreshed when their covered cells or colors change.
 | Mouse buttons | 0 |
 
 `KEY_HELD` polls the keyboard matrix without consuming typed input.
+
+## Sound
+
+TED has two sound voices with a shared master volume. Timed notes and
+rests use KERNAL jiffy ticks. `FRAME_WAIT` and timed status queries
+service their durations. A new note or `SOUND_OFF` cancels the previous
+duration on that voice.
+
+`SOUND_ENVELOPE` selects attack, decay, sustain and release settings or
+a table of volume stages for subsequent notes. `FRAME_WAIT` advances
+the curve. The most recently started note controls the master volume
+and its selected envelope, affecting both voices.
 
 ## Timing
 
@@ -172,6 +240,21 @@ The CBM clock calls are specific to this target family:
 `TICKS` uses `TI` as its source. `TICKS_RESET` records a new starting
 value without changing the KERNAL clock.
 
+`TIMER_START` claims TED timer 2 until `TIMER_STOP`, which returns its
+elapsed hardware count modulo 65536 in `TIMER_LO`. `TIMER_HI` is zero.
+The counter runs at about 894 kHz on NTSC and 884 kHz on PAL.
+
+`RASTER_LINE_INSTALL` runs a callback at rows selected by
+`RASTER_MARK_ROW` or `RASTER_MARK_ROWS`, numbered 0 through 24.
+Row N starts at TED raster line N * 8 + 3. `RASTER_MARK_OFFSET` selects
+a raw raster line from 0 through 199. `RASTER_FRAME_INSTALL` runs once
+per video frame in the bottom border. These callbacks share the raster
+service with mixed display and `TED_SCROLL_REGION`.
+
+`RASTER_STOP` pauses the callbacks and `RASTER_START` resumes them.
+`RASTER_UNINSTALL` removes them. `RASTER_WSYNC` waits for the next
+raster line. Keep interrupt callbacks short.
+
 ## Files
 
 `FILE_LOAD_PROGRAM(path$)` loads a PRG from disk device 8 using its
@@ -189,3 +272,9 @@ programs: `OPEN_CH`, `CLOSE_CH`, `GET_CH`, `PUT_CH`, `PRINT_CH_STR`,
 `ST`, and `CMD_CH`.
 
 `cbm_basic_v3_5` targets `plus4` by default.
+
+Commodore BASIC listings often use POKEs to locations 51/52 and 55/56 to
+reserve memory. The dialect recognizes fixed values inside program memory
+and reserves from that address to the top of program memory. Calculated or
+incomplete values produce a warning requesting an explicit
+`@OPTION RAM_TOP $xxxx`.
